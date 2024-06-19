@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"goroutine"
+	"github.com/ivikasavnish/goroutine"
 	"log"
 	"strings"
 	"time"
