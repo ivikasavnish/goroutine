@@ -101,3 +101,6 @@ func (gr *GoManager) Poll(f ...Func) {
 func Null() {
 
 }
+func (gr *GoManager) Pipeline(f ...Func) {
+
+}
