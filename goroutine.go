@@ -6,8 +6,36 @@ import (
 	"reflect"
 )
 
+func init() {
+	log.SetFlags(log.Llongfile)
+}
+
 type GoManager struct {
 	items map[string]context.CancelFunc
+}
+
+type Func struct {
+	Name     string
+	FuncName interface{}
+	FuncArgs []interface{}
+	args     []reflect.Value
+}
+
+func NewFunc(f Func) *Func {
+	funcValue := reflect.ValueOf(f.FuncName)
+	if funcValue.Kind() != reflect.Func {
+		log.Println("fn is not a function", funcValue.Kind())
+
+	}
+	args := make([]reflect.Value, funcValue.Type().NumIn())
+	for i := 0; i < funcValue.Type().NumIn(); i++ {
+		args[i] = reflect.ValueOf(f.FuncArgs[i])
+	}
+	return &Func{
+		Name:     f.Name,
+		FuncName: funcValue,
+		args:     args,
+	}
 }
 
 func NewGoManager() *GoManager {
@@ -65,4 +93,11 @@ func handleContext(ctxgroup ...context.Context) bool {
 		}
 	}
 	return false
+}
+
+func (gr *GoManager) Poll(f ...Func) {
+
+}
+func Null() {
+
 }
