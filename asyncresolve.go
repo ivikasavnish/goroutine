@@ -2,6 +2,7 @@ package goroutine
 
 import (
 	"sync"
+	"time"
 )
 
 type Task[T any] struct {

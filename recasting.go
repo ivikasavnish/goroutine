@@ -1,13 +1,13 @@
 package goroutine
 
 import (
-	"context"
-	"fmt"
+	_ "context"
+	_ "fmt"
 	"reflect"
 	"strconv"
 	"strings"
-
 )
+
 func RecastToJSON(src, dst interface{}) {
 	srcVal := reflect.Indirect(reflect.ValueOf(src))
 	dstVal := reflect.Indirect(reflect.ValueOf(dst))
@@ -21,7 +21,7 @@ func RecastToJSON(src, dst interface{}) {
 			if srcType.Tag.Get("recast") == dstType.Tag.Get("json") {
 				srcField := srcVal.Field(i)
 				dstField := dstVal.Field(j)
-				
+
 				// Basic type conversions
 				switch dstField.Kind() {
 				case reflect.String:

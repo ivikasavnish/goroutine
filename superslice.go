@@ -1,57 +1,58 @@
-// Package streamify provides a fluent, chainable interface for sequence operations
-// with support for lazy evaluation and parallel processing.
 package goroutine
 
 // Iterator represents a sequence of values that can be traversed.
 type Iterator[T any] interface {
-	// Next advances the iterator to the next element.
-	// Returns false if there are no more elements.
 	Next() bool
-	// Value returns the current element.
-	// Should only be called after a successful Next().
 	Value() T
 }
 
 // Stream represents a sequence of values with chainable operations.
+// We need to add U to the type parameter list of Stream itself
 type Stream[T any] struct {
 	iterator Iterator[T]
 }
 
-// sliceIterator implements Iterator for slice types.
 type sliceIterator[T any] struct {
 	slice []T
-	index int
+	pos   int
 }
 
 func (si *sliceIterator[T]) Next() bool {
-	si.index++
-	return si.index < len(si.slice)
+	if si.pos+1 < len(si.slice) {
+		si.pos++
+		return true
+	}
+	return false
 }
 
 func (si *sliceIterator[T]) Value() T {
-	return si.slice[si.index]
+	return si.slice[si.pos]
 }
 
-// mapIterator transforms elements using a mapping function.
 type mapIterator[T, U any] struct {
-	source Iterator[T]
-	mapper func(T) U
+	source  Iterator[T]
+	mapper  func(T) U
+	current U
 }
 
 func (mi *mapIterator[T, U]) Next() bool {
-	return mi.source.Next()
+	if mi.source.Next() {
+		sourceVal := mi.source.Value()
+		mi.current = mi.mapper(sourceVal)
+		return true
+	}
+	return false
 }
 
 func (mi *mapIterator[T, U]) Value() U {
-	return mi.mapper(mi.source.Value())
+	return mi.current
 }
 
-// filterIterator filters elements using a predicate function.
 type filterIterator[T any] struct {
 	source    Iterator[T]
 	predicate func(T) bool
 	current   T
-	valid     bool
+	hasNext   bool
 }
 
 func (fi *filterIterator[T]) Next() bool {
@@ -59,27 +60,34 @@ func (fi *filterIterator[T]) Next() bool {
 		value := fi.source.Value()
 		if fi.predicate(value) {
 			fi.current = value
-			fi.valid = true
+			fi.hasNext = true
 			return true
 		}
 	}
-	fi.valid = false
+	fi.hasNext = false
 	return false
 }
 
 func (fi *filterIterator[T]) Value() T {
+	if !fi.hasNext {
+		panic("Value called without successful Next()")
+	}
 	return fi.current
 }
 
-// FromSlice creates a new Stream from a slice.
+// FromSlice creates a new Stream from a slice
 func FromSlice[T any](slice []T) *Stream[T] {
 	return &Stream[T]{
-		iterator: &sliceIterator[T]{slice: slice, index: -1},
+		iterator: &sliceIterator[T]{
+			slice: slice,
+			pos:   -1,
+		},
 	}
 }
 
-// Map applies a transformation function to each element in the Stream.
-func (s *Stream[T]) Map[U any](mapper func(T) U) *Stream[U] {
+// Map converts a Stream[T] to a Stream[U]
+// Instead of being a method with a type parameter, this is now a function
+func Map[T, U any](s *Stream[T], mapper func(T) U) *Stream[U] {
 	return &Stream[U]{
 		iterator: &mapIterator[T, U]{
 			source: s.iterator,
@@ -88,17 +96,18 @@ func (s *Stream[T]) Map[U any](mapper func(T) U) *Stream[U] {
 	}
 }
 
-// Filter retains only elements that satisfy the given predicate.
+// Filter retains only elements that satisfy the given predicate
 func (s *Stream[T]) Filter(predicate func(T) bool) *Stream[T] {
 	return &Stream[T]{
 		iterator: &filterIterator[T]{
 			source:    s.iterator,
 			predicate: predicate,
+			hasNext:   false,
 		},
 	}
 }
 
-// Collect accumulates all elements into a slice.
+// Collect accumulates all elements into a slice
 func (s *Stream[T]) Collect() []T {
 	var result []T
 	for s.iterator.Next() {
@@ -107,14 +116,14 @@ func (s *Stream[T]) Collect() []T {
 	return result
 }
 
-// ForEach applies an action to each element in the Stream.
+// ForEach applies an action to each element
 func (s *Stream[T]) ForEach(action func(T)) {
 	for s.iterator.Next() {
 		action(s.iterator.Value())
 	}
 }
 
-// Reduce combines elements using a reducer function and initial value.
+// Reduce combines elements using a reducer function and initial value
 func (s *Stream[T]) Reduce(initial T, reducer func(T, T) T) T {
 	result := initial
 	for s.iterator.Next() {
