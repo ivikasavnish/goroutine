@@ -497,14 +497,15 @@ func (ss *SuperSlice[T]) processParallelWithError(callback func(index int, item 
 		go func(start, end int) {
 			defer wg.Done()
 			for i := start; i < end; i++ {
-				// Check if an error already occurred
+				// Check if an error already occurred using atomic operation
 				if errOccurred.Load() {
 					return
 				}
 
 				val, err := callback(i, ss.data[i])
 				if err != nil {
-					// Only set error once
+					// CompareAndSwap is atomic - only one goroutine will succeed
+					// in setting the flag from false to true
 					if errOccurred.CompareAndSwap(false, true) {
 						mu.Lock()
 						firstErr = err

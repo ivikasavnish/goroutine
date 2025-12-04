@@ -108,13 +108,20 @@ func TestSuperSliceWithWorkers(t *testing.T) {
 
 func TestSuperSliceInPlace(t *testing.T) {
 	data := []int{1, 2, 3, 4, 5}
+	originalPtr := &data[0] // Store pointer to first element
 	ss := NewSuperSlice(data).WithInPlace()
 
 	result := ss.Process(func(index int, item int) int {
 		return item * 10
 	})
 
-	// Result should be same reference as original data
+	// Verify result is same reference as original data
+	resultPtr := &result[0]
+	if originalPtr != resultPtr {
+		t.Error("Expected in-place update to modify original slice, got different slice")
+	}
+
+	// Verify values are correct
 	for i := range data {
 		if data[i] != result[i] {
 			t.Errorf("At index %d: data=%d, result=%d", i, data[i], result[i])
