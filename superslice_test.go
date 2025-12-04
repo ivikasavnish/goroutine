@@ -194,18 +194,17 @@ func TestSuperSliceForEach(t *testing.T) {
 	data := []int{1, 2, 3, 4, 5}
 	ss := NewSuperSlice(data)
 
-	count := 0
-	sum := 0
+	// Use a slice to collect results safely
+	results := make([]int, len(data))
 	ss.ForEach(func(index int, item int) {
-		count++
-		sum += item
+		results[index] = item
 	})
 
-	if count != 5 {
-		t.Errorf("Expected count 5, got %d", count)
-	}
-	if sum != 15 {
-		t.Errorf("Expected sum 15, got %d", sum)
+	// Verify all items were processed
+	for i, expected := range data {
+		if results[i] != expected {
+			t.Errorf("At index %d: expected %d, got %d", i, expected, results[i])
+		}
 	}
 }
 

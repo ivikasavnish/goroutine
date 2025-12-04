@@ -3,6 +3,7 @@ package goroutine
 import (
 	"runtime"
 	"sync"
+	"sync/atomic"
 )
 
 // Iterator represents a sequence of values that can be traversed.
@@ -323,9 +324,9 @@ func (ss *SuperSlice[T]) FilterSlice(predicate func(index int, item T) bool) []T
 	}
 
 	// Use parallel processing for large slices
-	var mu sync.Mutex
+	// Create a slice to track which elements match
+	matches := make([]bool, size)
 	var wg sync.WaitGroup
-	result := make([]T, 0)
 	chunkSize := (size + ss.config.NumWorkers - 1) / ss.config.NumWorkers
 
 	for w := 0; w < ss.config.NumWorkers; w++ {
@@ -338,19 +339,24 @@ func (ss *SuperSlice[T]) FilterSlice(predicate func(index int, item T) bool) []T
 
 		go func(start, end int) {
 			defer wg.Done()
-			localResult := make([]T, 0)
 			for i := start; i < end; i++ {
 				if predicate(i, ss.data[i]) {
-					localResult = append(localResult, ss.data[i])
+					matches[i] = true
 				}
 			}
-			mu.Lock()
-			result = append(result, localResult...)
-			mu.Unlock()
 		}(start, end)
 	}
 
 	wg.Wait()
+
+	// Collect results in order
+	result := make([]T, 0)
+	for i := 0; i < size; i++ {
+		if matches[i] {
+			result = append(result, ss.data[i])
+		}
+	}
+
 	return result
 }
 
@@ -477,6 +483,7 @@ func (ss *SuperSlice[T]) processParallelWithError(callback func(index int, item 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var firstErr error
+	var errOccurred atomic.Bool
 	chunkSize := (size + ss.config.NumWorkers - 1) / ss.config.NumWorkers
 
 	for w := 0; w < ss.config.NumWorkers; w++ {
@@ -491,20 +498,18 @@ func (ss *SuperSlice[T]) processParallelWithError(callback func(index int, item 
 			defer wg.Done()
 			for i := start; i < end; i++ {
 				// Check if an error already occurred
-				mu.Lock()
-				if firstErr != nil {
-					mu.Unlock()
+				if errOccurred.Load() {
 					return
 				}
-				mu.Unlock()
 
 				val, err := callback(i, ss.data[i])
 				if err != nil {
-					mu.Lock()
-					if firstErr == nil {
+					// Only set error once
+					if errOccurred.CompareAndSwap(false, true) {
+						mu.Lock()
 						firstErr = err
+						mu.Unlock()
 					}
-					mu.Unlock()
 					return
 				}
 				result[i] = val
