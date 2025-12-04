@@ -350,7 +350,15 @@ func (ss *SuperSlice[T]) FilterSlice(predicate func(index int, item T) bool) []T
 	wg.Wait()
 
 	// Collect results in order
-	result := make([]T, 0)
+	// Pre-count matches for efficient allocation
+	matchCount := 0
+	for i := 0; i < size; i++ {
+		if matches[i] {
+			matchCount++
+		}
+	}
+	
+	result := make([]T, 0, matchCount)
 	for i := 0; i < size; i++ {
 		if matches[i] {
 			result = append(result, ss.data[i])
