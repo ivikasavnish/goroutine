@@ -161,16 +161,16 @@ func RecastToMap(src interface{}, opts *RecastOptions) map[string]interface{} {
 		
 		// Parse recast tag
 		tagParts := strings.Split(recastTag, ",")
-		fieldName := tagParts[0]
+		originalFieldName := tagParts[0]
 		
 		// Skip if field is in omit list
-		if omitMap[fieldName] {
+		if omitMap[originalFieldName] {
 			continue
 		}
 		
 		// Apply field renaming if configured
-		outputName := fieldName
-		if renamed, ok := opts.RenameFields[fieldName]; ok {
+		outputName := originalFieldName
+		if renamed, ok := opts.RenameFields[originalFieldName]; ok {
 			outputName = renamed
 		}
 
@@ -199,9 +199,9 @@ func RecastToMap(src interface{}, opts *RecastOptions) map[string]interface{} {
 			value = srcField.Interface()
 		}
 		
-		// Apply custom transformation function if provided
+		// Apply custom transformation function if provided (use original field name)
 		if opts.TransformFuncs != nil {
-			if transformFunc, ok := opts.TransformFuncs[fieldName]; ok {
+			if transformFunc, ok := opts.TransformFuncs[originalFieldName]; ok {
 				value = transformFunc(value)
 			}
 		}
