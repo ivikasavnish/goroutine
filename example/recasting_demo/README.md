@@ -148,7 +148,7 @@ opts := &goroutine.RecastOptions{
 }
 
 jsonStr, err := goroutine.RecastToJSONString(&internal, opts)
-// Result: {"email":"user@example.com","id":42,"price_cents":1299}
+// Result: {"email":"user@example.com","id":42,"price_cents":1299.0}
 ```
 
 ## Supported Type Conversions

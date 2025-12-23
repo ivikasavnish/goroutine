@@ -46,10 +46,7 @@ func RecastToJSONWithOptions(src, dst interface{}, opts *RecastOptions) {
 		opts = &RecastOptions{}
 	}
 
-	omitMap := make(map[string]bool)
-	for _, field := range opts.OmitFields {
-		omitMap[field] = true
-	}
+	omitMap := createOmitMap(opts)
 
 	for i := 0; i < srcVal.NumField(); i++ {
 		srcType := srcVal.Type().Field(i)
