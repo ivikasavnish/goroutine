@@ -1,7 +1,6 @@
 package goroutine
 
 import (
-	_ "context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -44,6 +43,11 @@ func RecastToJSONWithOptions(src, dst interface{}, opts *RecastOptions) {
 	for i := 0; i < srcVal.NumField(); i++ {
 		srcType := srcVal.Type().Field(i)
 		recastTag := srcType.Tag.Get("recast")
+		
+		// Skip if no recast tag or marked to skip
+		if recastTag == "" || recastTag == "-" {
+			continue
+		}
 		
 		// Parse recast tag
 		tagParts := strings.Split(recastTag, ",")

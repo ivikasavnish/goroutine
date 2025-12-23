@@ -537,7 +537,10 @@ func demo12MapOutput() {
 		TransformFuncs: map[string]goroutine.TransformFunc{
 			"available": func(val interface{}) interface{} {
 				// Calculate percentage
-				available := val.(int)
+				available, ok := val.(int)
+				if !ok {
+					return val
+				}
 				capacity := event.Capacity
 				percentage := float64(available) / float64(capacity) * 100
 				return fmt.Sprintf("%d (%.1f%% available)", available, percentage)
