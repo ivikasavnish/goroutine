@@ -30,6 +30,21 @@ func main() {
 	fmt.Println("\n" + strings.Repeat("=", 50) + "\n")
 
 	demo7PartialMapping()
+	fmt.Println("\n" + strings.Repeat("=", 50) + "\n")
+
+	demo8JSONOutput()
+	fmt.Println("\n" + strings.Repeat("=", 50) + "\n")
+
+	demo9FieldOmission()
+	fmt.Println("\n" + strings.Repeat("=", 50) + "\n")
+
+	demo10FunctionalTransformation()
+	fmt.Println("\n" + strings.Repeat("=", 50) + "\n")
+
+	demo11FieldRenaming()
+	fmt.Println("\n" + strings.Repeat("=", 50) + "\n")
+
+	demo12MapOutput()
 }
 
 // Example 1: Basic field mapping
@@ -319,4 +334,224 @@ func demo7PartialMapping() {
 	fmt.Printf("  %+v\n", dest)
 	fmt.Printf("\nNote: FieldD from source was not mapped (no matching json tag)\n")
 	fmt.Printf("      FieldE in destination kept its original value (no matching recast tag)\n")
+}
+
+// Example 8: JSON output
+func demo8JSONOutput() {
+	fmt.Println("Demo 8: JSON Output")
+	fmt.Println("Demonstrates converting struct directly to JSON string\n")
+
+	type Product struct {
+		ID          int    `recast:"id"`
+		Name        string `recast:"name"`
+		Price       int    `recast:"price"`
+		InStock     int    `recast:"in_stock"`
+		Description string `recast:"description"`
+	}
+
+	product := Product{
+		ID:          101,
+		Name:        "Wireless Mouse",
+		Price:       2999,
+		InStock:     150,
+		Description: "Ergonomic wireless mouse with 6 buttons",
+	}
+
+	fmt.Printf("Product struct:\n")
+	fmt.Printf("  %+v\n\n", product)
+
+	// Convert to JSON string
+	jsonStr, err := goroutine.RecastToJSONString(&product, nil)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Printf("JSON Output:\n")
+	fmt.Printf("  %s\n", jsonStr)
+}
+
+// Example 9: Field omission
+func demo9FieldOmission() {
+	fmt.Println("Demo 9: Field Omission (Negation)")
+	fmt.Println("Demonstrates excluding specific fields from output\n")
+
+	type User struct {
+		Username  string `recast:"username"`
+		Email     string `recast:"email"`
+		Password  string `recast:"password"`
+		APIKey    string `recast:"api_key"`
+		FirstName string `recast:"first_name"`
+		LastName  string `recast:"last_name"`
+	}
+
+	user := User{
+		Username:  "johndoe",
+		Email:     "john@example.com",
+		Password:  "secret123",
+		APIKey:    "key_12345_secret",
+		FirstName: "John",
+		LastName:  "Doe",
+	}
+
+	fmt.Printf("Original User (with sensitive data):\n")
+	fmt.Printf("  %+v\n\n", user)
+
+	// Omit sensitive fields
+	opts := &goroutine.RecastOptions{
+		OmitFields: []string{"password", "api_key"},
+	}
+
+	jsonStr, err := goroutine.RecastToJSONString(&user, opts)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Printf("JSON Output (sensitive fields omitted):\n")
+	fmt.Printf("  %s\n", jsonStr)
+	fmt.Printf("\nNote: password and api_key fields were excluded\n")
+}
+
+// Example 10: Functional transformation
+func demo10FunctionalTransformation() {
+	fmt.Println("Demo 10: Functional Transformation")
+	fmt.Println("Demonstrates applying custom transformation functions to fields\n")
+
+	type Product struct {
+		Name       string `recast:"name"`
+		PriceCents int    `recast:"price"`
+		Quantity   int    `recast:"quantity"`
+	}
+
+	product := Product{
+		Name:       "Laptop",
+		PriceCents: 129900, // Price in cents
+		Quantity:   5,
+	}
+
+	fmt.Printf("Original Product:\n")
+	fmt.Printf("  %+v\n\n", product)
+
+	// Transform price from cents to dollars
+	opts := &goroutine.RecastOptions{
+		TransformFuncs: map[string]goroutine.TransformFunc{
+			"price": func(val interface{}) interface{} {
+				if priceInCents, ok := val.(int); ok {
+					return float64(priceInCents) / 100.0
+				}
+				return val
+			},
+			"quantity": func(val interface{}) interface{} {
+				if qty, ok := val.(int); ok {
+					if qty > 0 {
+						return fmt.Sprintf("%d items available", qty)
+					}
+					return "Out of stock"
+				}
+				return val
+			},
+		},
+	}
+
+	resultMap := goroutine.RecastToMap(&product, opts)
+
+	fmt.Printf("Transformed Output:\n")
+	fmt.Printf("  name: %v\n", resultMap["name"])
+	fmt.Printf("  price: $%.2f (converted from cents)\n", resultMap["price"])
+	fmt.Printf("  quantity: %v (formatted)\n", resultMap["quantity"])
+}
+
+// Example 11: Field renaming
+func demo11FieldRenaming() {
+	fmt.Println("Demo 11: Field Renaming")
+	fmt.Println("Demonstrates renaming fields in the output\n")
+
+	type InternalModel struct {
+		UserID    int    `recast:"user_id"`
+		UserEmail string `recast:"user_email"`
+		UserName  string `recast:"user_name"`
+		Status    string `recast:"status"`
+	}
+
+	internal := InternalModel{
+		UserID:    42,
+		UserEmail: "user@example.com",
+		UserName:  "alice",
+		Status:    "active",
+	}
+
+	fmt.Printf("Internal Model:\n")
+	fmt.Printf("  %+v\n\n", internal)
+
+	// Rename fields for API output
+	opts := &goroutine.RecastOptions{
+		RenameFields: map[string]string{
+			"user_id":    "id",
+			"user_email": "email",
+			"user_name":  "username",
+		},
+	}
+
+	jsonStr, err := goroutine.RecastToJSONString(&internal, opts)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Printf("API Output (with renamed fields):\n")
+	fmt.Printf("  %s\n", jsonStr)
+	fmt.Printf("\nNote: user_id → id, user_email → email, user_name → username\n")
+}
+
+// Example 12: Map output for flexible structures
+func demo12MapOutput() {
+	fmt.Println("Demo 12: Map Output")
+	fmt.Println("Demonstrates converting to map[string]interface{} for flexible manipulation\n")
+
+	type Event struct {
+		EventID   int    `recast:"event_id"`
+		EventName string `recast:"event_name"`
+		Location  string `recast:"location"`
+		Capacity  int    `recast:"capacity"`
+		Available int    `recast:"available"`
+	}
+
+	event := Event{
+		EventID:   201,
+		EventName: "Tech Conference 2024",
+		Location:  "Convention Center",
+		Capacity:  500,
+		Available: 125,
+	}
+
+	fmt.Printf("Event struct:\n")
+	fmt.Printf("  %+v\n\n", event)
+
+	// Convert to map with transformations
+	opts := &goroutine.RecastOptions{
+		RenameFields: map[string]string{
+			"event_id":   "id",
+			"event_name": "name",
+		},
+		TransformFuncs: map[string]goroutine.TransformFunc{
+			"available": func(val interface{}) interface{} {
+				// Calculate percentage
+				available := val.(int)
+				capacity := event.Capacity
+				percentage := float64(available) / float64(capacity) * 100
+				return fmt.Sprintf("%d (%.1f%% available)", available, percentage)
+			},
+		},
+	}
+
+	resultMap := goroutine.RecastToMap(&event, opts)
+
+	fmt.Printf("Map Output:\n")
+	for key, value := range resultMap {
+		fmt.Printf("  %s: %v\n", key, value)
+	}
+	
+	fmt.Printf("\nNote: Result is a flexible map[string]interface{} that can be\n")
+	fmt.Printf("      further manipulated or used to construct dynamic responses\n")
 }
