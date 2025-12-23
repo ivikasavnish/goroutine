@@ -21,6 +21,17 @@ type RecastOptions struct {
 	RenameFields map[string]string
 }
 
+// createOmitMap creates a map for quick field omission lookups
+func createOmitMap(opts *RecastOptions) map[string]bool {
+	omitMap := make(map[string]bool)
+	if opts != nil {
+		for _, field := range opts.OmitFields {
+			omitMap[field] = true
+		}
+	}
+	return omitMap
+}
+
 // RecastToJSON maps source struct fields to destination struct using recast and json tags
 func RecastToJSON(src, dst interface{}) {
 	RecastToJSONWithOptions(src, dst, nil)
@@ -51,15 +62,16 @@ func RecastToJSONWithOptions(src, dst interface{}, opts *RecastOptions) {
 		
 		// Parse recast tag
 		tagParts := strings.Split(recastTag, ",")
-		fieldName := tagParts[0]
+		originalFieldName := tagParts[0]
+		fieldName := originalFieldName
 		
 		// Skip if field is in omit list
-		if omitMap[fieldName] {
+		if omitMap[originalFieldName] {
 			continue
 		}
 		
 		// Apply field renaming if configured
-		if renamed, ok := opts.RenameFields[fieldName]; ok {
+		if renamed, ok := opts.RenameFields[originalFieldName]; ok {
 			fieldName = renamed
 		}
 
@@ -90,9 +102,9 @@ func RecastToJSONWithOptions(src, dst interface{}, opts *RecastOptions) {
 					}
 				}
 				
-				// Apply custom transformation function if provided
+				// Apply custom transformation function if provided (use original field name)
 				if opts.TransformFuncs != nil {
-					if transformFunc, ok := opts.TransformFuncs[fieldName]; ok {
+					if transformFunc, ok := opts.TransformFuncs[originalFieldName]; ok {
 						var valueToTransform interface{}
 						if hasFunc {
 							valueToTransform = transformedValue
@@ -140,10 +152,7 @@ func RecastToMap(src interface{}, opts *RecastOptions) map[string]interface{} {
 		opts = &RecastOptions{}
 	}
 
-	omitMap := make(map[string]bool)
-	for _, field := range opts.OmitFields {
-		omitMap[field] = true
-	}
+	omitMap := createOmitMap(opts)
 
 	for i := 0; i < srcVal.NumField(); i++ {
 		srcType := srcVal.Type().Field(i)
