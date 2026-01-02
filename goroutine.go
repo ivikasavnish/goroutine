@@ -1,3 +1,50 @@
+// Package goroutine provides advanced concurrent processing utilities for Go.
+//
+// This package offers powerful tools for managing concurrent operations including:
+//   - Async task resolution (Promise-like pattern with Group)
+//   - Safe channel operations with timeout support (SafeChannel)
+//   - Parallel slice processing with automatic parallelization (SuperSlice)
+//   - Flexible goroutine management with cancellation (GoManager)
+//   - Type conversion utilities (Recasting)
+//
+// Key Features:
+//
+// Async Resolve: Launch multiple async operations and wait for all to complete,
+// similar to Promise.all() in JavaScript. Supports timeout-based operations.
+//
+// SuperSlice: Process large slices efficiently with automatic parallelization
+// based on configurable thresholds. Includes worker pool management, in-place
+// updates, and support for map/filter/forEach operations.
+//
+// SafeChannel: Thread-safe channel wrapper with timeout capabilities and
+// distributed backend support for building robust concurrent systems.
+//
+// GoManager: Manage named goroutines with context-based lifecycle management
+// and dynamic cancellation support.
+//
+// Example usage:
+//
+//	// Async Resolve
+//	group := goroutine.NewGroup()
+//	var result1, result2 any
+//	group.Assign(&result1, func() any { return "done" })
+//	group.Assign(&result2, func() any { return 42 })
+//	group.Resolve()
+//
+//	// SuperSlice
+//	numbers := []int{1, 2, 3, 4, 5}
+//	ss := goroutine.NewSuperSlice(numbers)
+//	doubled := ss.Process(func(i int, n int) int { return n * 2 })
+//
+//	// SafeChannel
+//	sc := goroutine.NewSafeChannel[int](10, 5*time.Second)
+//	sc.Send(42)
+//	value, _ := sc.Receive()
+//
+//	// GoManager
+//	manager := goroutine.NewGoManager()
+//	manager.GO("worker", func() { /* work */ })
+//	manager.Cancel("worker")
 package goroutine
 
 import (
