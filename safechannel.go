@@ -161,14 +161,18 @@ type DistributedSafeChannel[T any] struct {
 	topic       string
 	closed      bool
 	mu          sync.RWMutex
+	cache       *Cache[string, T]
+	cacheControl *CacheControl
 }
 
 // NewDistributedSafeChannel creates a distributed safe channel with specified backend
 func NewDistributedSafeChannel[T any](backend DistributedBackend, topic string, bufferSize int, timeout time.Duration) *DistributedSafeChannel[T] {
 	return &DistributedSafeChannel[T]{
-		safeChannel: NewSafeChannel[T](bufferSize, timeout),
-		backend:     backend,
-		topic:       topic,
+		safeChannel:  NewSafeChannel[T](bufferSize, timeout),
+		backend:      backend,
+		topic:        topic,
+		cache:        NewCache[string, T](),
+		cacheControl: DefaultCacheControl(),
 	}
 }
 
@@ -275,4 +279,53 @@ func (dsc *DistributedSafeChannel[T]) BackendType() string {
 		return "local"
 	}
 	return dsc.backend.Type()
+}
+
+// ReceiveWithPreflight attempts to receive with cache preflight check
+// This reduces downstream load by checking cache before backend
+func (dsc *DistributedSafeChannel[T]) ReceiveWithPreflight(ctx context.Context, key string) (T, error) {
+	var zero T
+
+	dsc.mu.RLock()
+	if dsc.closed {
+		dsc.mu.RUnlock()
+		return zero, ErrChannelClosed
+	}
+	dsc.mu.RUnlock()
+
+	// Preflight: Check cache first unless NoCache is set
+	if !dsc.cacheControl.NoCache {
+		if entry, found := dsc.cache.Get(key); found {
+			if !entry.IsExpired() {
+				// Cache hit - reduces downstream load
+				return entry.Value, nil
+			}
+		}
+	}
+
+	// Cache miss or NoCache: fetch from backend
+	data, err := dsc.backend.Receive(ctx, dsc.topic)
+	if err == nil {
+		var value T
+		if err := json.Unmarshal(data, &value); err == nil {
+			// Store in cache for future preflight checks
+			dsc.cache.Set(key, value, dsc.cacheControl.MaxAge)
+			return value, nil
+		}
+	}
+
+	// Fall back to local channel
+	return dsc.safeChannel.Receive(ctx)
+}
+
+// SetCacheControl updates the cache control directives for preflight checks
+func (dsc *DistributedSafeChannel[T]) SetCacheControl(control *CacheControl) {
+	dsc.mu.Lock()
+	defer dsc.mu.Unlock()
+	dsc.cacheControl = control
+}
+
+// ClearCache clears all cached entries
+func (dsc *DistributedSafeChannel[T]) ClearCache() {
+	dsc.cache.Clear()
 }
