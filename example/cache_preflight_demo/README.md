@@ -26,7 +26,7 @@ Shows how `CachedGroup` automatically checks cache before executing async tasks.
 **Key Points:**
 - First call: Cache miss, fetches from DB (~500ms)
 - Second call: Cache hit, instant response (<1µs)
-- 462,000x faster with cache preflight!
+- Several orders of magnitude faster with cache preflight (typically 100,000-500,000x in the demo)
 
 **Code Pattern:**
 ```go

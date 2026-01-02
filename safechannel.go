@@ -155,14 +155,15 @@ type DistributedBackend interface {
 }
 
 // DistributedSafeChannel wraps SafeChannel with distributed backend support
+// It includes optional caching support to reduce downstream load via preflight checks
 type DistributedSafeChannel[T any] struct {
 	safeChannel *SafeChannel[T]
 	backend     DistributedBackend
 	topic       string
 	closed      bool
 	mu          sync.RWMutex
-	cache       *Cache[string, T]
-	cacheControl *CacheControl
+	cache       *Cache[string, T]       // Cache for preflight checks to reduce backend load
+	cacheControl *CacheControl           // Cache control directives (TTL, NoCache, etc.)
 }
 
 // NewDistributedSafeChannel creates a distributed safe channel with specified backend

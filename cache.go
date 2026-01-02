@@ -150,7 +150,9 @@ func (cg *CachedGroup) AssignWithCache(
 			} else if control.StaleWhileRevalidate {
 				// Return stale data immediately, revalidate in background
 				*result = entry.Value
-				cg.group.Assign(result, func() any {
+				// Use a separate variable for background revalidation to avoid race
+				var bgResult any
+				cg.group.Assign(&bgResult, func() any {
 					val := fn()
 					cg.cache.Set(key, val, control.MaxAge)
 					return val
