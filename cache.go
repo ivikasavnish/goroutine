@@ -150,7 +150,8 @@ func (cg *CachedGroup) AssignWithCache(
 			} else if control.StaleWhileRevalidate {
 				// Return stale data immediately, revalidate in background
 				*result = entry.Value
-				// Use a separate variable for background revalidation to avoid race
+				// Use a separate variable for background revalidation to avoid race condition
+				// The background result updates the cache but doesn't need to be used directly
 				var bgResult any
 				cg.group.Assign(&bgResult, func() any {
 					val := fn()
@@ -246,8 +247,9 @@ func (pf *PreflightFetcher[T]) FetchStaleWhileRevalidate(ctx context.Context, ke
 		if entry.IsStale() && pf.control.StaleWhileRevalidate {
 			// Return stale data immediately
 			go func() {
-				// Revalidate in background
-				if value, err := pf.fetchFunc(ctx, key); err == nil {
+				// Revalidate in background with a fresh context to avoid cancellation issues
+				bgCtx := context.Background()
+				if value, err := pf.fetchFunc(bgCtx, key); err == nil {
 					pf.cache.Set(key, value, pf.control.MaxAge)
 				}
 			}()

@@ -9,9 +9,16 @@ import (
 	"github.com/ivikasavnish/goroutine"
 )
 
+const (
+	// DBLatencyMs simulates database latency
+	DBLatencyMs = 500 * time.Millisecond
+	// CacheLatencyMs simulates cache latency (unused but kept for reference)
+	CacheLatencyMs = 50 * time.Millisecond
+)
+
 // SimulateDBFetch simulates a slow database fetch
 func SimulateDBFetch(id string) string {
-	time.Sleep(500 * time.Millisecond) // Simulate DB latency
+	time.Sleep(DBLatencyMs) // Simulate DB latency
 	return fmt.Sprintf("DB Data for %s", id)
 }
 
@@ -86,7 +93,7 @@ func demo2PreflightFetcher() {
 	fetchFunc := func(ctx context.Context, key string) (string, error) {
 		dbCallCount++
 		fmt.Printf("  -> DB Call #%d for key: %s\n", dbCallCount, key)
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(DBLatencyMs)
 		return fmt.Sprintf("Data-%s", key), nil
 	}
 
@@ -154,7 +161,7 @@ func demo4StaleWhileRevalidate() {
 
 	fetchFunc := func(ctx context.Context, key string) (string, error) {
 		fmt.Println("  -> Revalidating from source...")
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(DBLatencyMs)
 		return fmt.Sprintf("Fresh-%d", time.Now().Unix()), nil
 	}
 
