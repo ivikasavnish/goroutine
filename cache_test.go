@@ -3,6 +3,7 @@ package goroutine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -346,5 +347,179 @@ func TestPreflightFetcherStaleWhileRevalidate(t *testing.T) {
 	}
 	if entry.Value != "fresh-value" {
 		t.Errorf("Expected fresh-value after revalidation, got %s", entry.Value)
+	}
+}
+
+func TestParametricFetcher(t *testing.T) {
+	callCount := 0
+	fetchFunc := func(ctx context.Context, userID int) (string, error) {
+		callCount++
+		return fmt.Sprintf("user-data-%d", userID), nil
+	}
+	
+	// Use FormatKeyFunc for automatic key generation
+	keyFunc := FormatKeyFunc[int]("user:%d")
+	control := &CacheControl{
+		NoCache: false,
+		MaxAge:  1 * time.Minute,
+	}
+	
+	fetcher := NewParametricFetcher(fetchFunc, keyFunc, control)
+	ctx := context.Background()
+	
+	// First fetch should call fetchFunc
+	val1, err := fetcher.Fetch(ctx, 123)
+	if err != nil {
+		t.Fatalf("Fetch failed: %v", err)
+	}
+	if val1 != "user-data-123" {
+		t.Errorf("Expected user-data-123, got %s", val1)
+	}
+	if callCount != 1 {
+		t.Errorf("Expected 1 call, got %d", callCount)
+	}
+	
+	// Second fetch should use cache (no manual key construction needed!)
+	val2, err := fetcher.Fetch(ctx, 123)
+	if err != nil {
+		t.Fatalf("Fetch failed: %v", err)
+	}
+	if val2 != "user-data-123" {
+		t.Errorf("Expected cached user-data-123, got %s", val2)
+	}
+	if callCount != 1 {
+		t.Errorf("Expected 1 call (cache hit), got %d", callCount)
+	}
+	
+	// Different parameter should call fetchFunc again
+	val3, err := fetcher.Fetch(ctx, 456)
+	if err != nil {
+		t.Fatalf("Fetch failed: %v", err)
+	}
+	if val3 != "user-data-456" {
+		t.Errorf("Expected user-data-456, got %s", val3)
+	}
+	if callCount != 2 {
+		t.Errorf("Expected 2 calls, got %d", callCount)
+	}
+}
+
+func TestParametricFetcherDefaultKeyFunc(t *testing.T) {
+	fetchFunc := func(ctx context.Context, key string) (string, error) {
+		return "data-" + key, nil
+	}
+	
+	// Use nil keyFunc for default behavior
+	fetcher := NewParametricFetcher(fetchFunc, nil, nil)
+	ctx := context.Background()
+	
+	val, err := fetcher.Fetch(ctx, "test")
+	if err != nil {
+		t.Fatalf("Fetch failed: %v", err)
+	}
+	if val != "data-test" {
+		t.Errorf("Expected data-test, got %s", val)
+	}
+}
+
+func TestParametricFetcherStaleWhileRevalidate(t *testing.T) {
+	fetchFunc := func(ctx context.Context, id int) (string, error) {
+		time.Sleep(50 * time.Millisecond)
+		return fmt.Sprintf("fresh-%d", id), nil
+	}
+	
+	keyFunc := FormatKeyFunc[int]("item:%d")
+	control := &CacheControl{
+		NoCache:              false,
+		MaxAge:               50 * time.Millisecond,
+		StaleWhileRevalidate: true,
+	}
+	
+	fetcher := NewParametricFetcher(fetchFunc, keyFunc, control)
+	ctx := context.Background()
+	
+	// Initial fetch
+	val1, _ := fetcher.Fetch(ctx, 1)
+	if val1 != "fresh-1" {
+		t.Errorf("Expected fresh-1, got %s", val1)
+	}
+	
+	// Wait for cache to expire
+	time.Sleep(100 * time.Millisecond)
+	
+	// Manually set stale data in cache
+	fetcher.cache.Set("item:1", "stale-1", -1*time.Second)
+	
+	// Fetch with stale-while-revalidate - should return stale immediately
+	start := time.Now()
+	val2, err := fetcher.FetchStaleWhileRevalidate(ctx, 1)
+	elapsed := time.Since(start)
+	
+	if err != nil {
+		t.Fatalf("FetchStaleWhileRevalidate failed: %v", err)
+	}
+	if val2 != "stale-1" {
+		t.Errorf("Expected stale-1 immediately, got %s", val2)
+	}
+	// Should be instant (much less than the 50ms fetch time)
+	if elapsed > 20*time.Millisecond {
+		t.Errorf("Expected instant response, took %v", elapsed)
+	}
+}
+
+type UserRequest struct {
+	UserID int
+	Locale string
+}
+
+func TestParametricFetcherWithStruct(t *testing.T) {
+	callCount := 0
+	fetchFunc := func(ctx context.Context, req UserRequest) (string, error) {
+		callCount++
+		return fmt.Sprintf("user-%d-%s", req.UserID, req.Locale), nil
+	}
+	
+	// Custom key function for struct
+	keyFunc := func(req UserRequest) string {
+		return fmt.Sprintf("user:%d:%s", req.UserID, req.Locale)
+	}
+	
+	fetcher := NewParametricFetcher(fetchFunc, keyFunc, nil)
+	ctx := context.Background()
+	
+	req1 := UserRequest{UserID: 123, Locale: "en"}
+	req2 := UserRequest{UserID: 123, Locale: "fr"}
+	
+	// First request
+	val1, err := fetcher.Fetch(ctx, req1)
+	if err != nil {
+		t.Fatalf("Fetch failed: %v", err)
+	}
+	if val1 != "user-123-en" {
+		t.Errorf("Expected user-123-en, got %s", val1)
+	}
+	
+	// Same request should hit cache
+	val2, err := fetcher.Fetch(ctx, req1)
+	if err != nil {
+		t.Fatalf("Fetch failed: %v", err)
+	}
+	if val2 != "user-123-en" {
+		t.Errorf("Expected cached user-123-en, got %s", val2)
+	}
+	if callCount != 1 {
+		t.Errorf("Expected 1 call (cache hit), got %d", callCount)
+	}
+	
+	// Different locale should miss cache
+	val3, err := fetcher.Fetch(ctx, req2)
+	if err != nil {
+		t.Fatalf("Fetch failed: %v", err)
+	}
+	if val3 != "user-123-fr" {
+		t.Errorf("Expected user-123-fr, got %s", val3)
+	}
+	if callCount != 2 {
+		t.Errorf("Expected 2 calls, got %d", callCount)
 	}
 }

@@ -2,6 +2,7 @@ package goroutine
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -274,4 +275,130 @@ func (pf *PreflightFetcher[T]) SetCacheControl(control *CacheControl) {
 // ClearCache clears all cached entries
 func (pf *PreflightFetcher[T]) ClearCache() {
 	pf.cache.Clear()
+}
+
+// KeyFunc is a function that generates a cache key from parameters
+type KeyFunc[P any] func(params P) string
+
+// ParametricFetcher provides cache-first fetching with automatic key generation from parameters
+// This simplifies the API by eliminating manual key construction
+type ParametricFetcher[P any, T any] struct {
+	cache     *Cache[string, T]
+	fetchFunc func(ctx context.Context, params P) (T, error)
+	keyFunc   KeyFunc[P]
+	control   *CacheControl
+	mu        sync.RWMutex
+}
+
+// NewParametricFetcher creates a fetcher with automatic key generation from parameters
+// The keyFunc generates cache keys from parameters automatically
+// If keyFunc is nil, uses fmt.Sprintf("%v", params) as default
+func NewParametricFetcher[P any, T any](
+	fetchFunc func(ctx context.Context, params P) (T, error),
+	keyFunc KeyFunc[P],
+	control *CacheControl,
+) *ParametricFetcher[P, T] {
+	if control == nil {
+		control = DefaultCacheControl()
+	}
+	if keyFunc == nil {
+		// Default key function uses fmt.Sprintf
+		keyFunc = func(params P) string {
+			return fmt.Sprintf("%v", params)
+		}
+	}
+	return &ParametricFetcher[P, T]{
+		cache:     NewCache[string, T](),
+		fetchFunc: fetchFunc,
+		keyFunc:   keyFunc,
+		control:   control,
+	}
+}
+
+// Fetch retrieves data with automatic key generation from parameters
+// The cache key is automatically generated using the keyFunc
+func (pf *ParametricFetcher[P, T]) Fetch(ctx context.Context, params P) (T, error) {
+	var zero T
+	
+	// Generate cache key from parameters
+	key := pf.keyFunc(params)
+
+	// Preflight: Check cache first unless NoCache is set
+	if !pf.control.NoCache {
+		if entry, found := pf.cache.Get(key); found {
+			if !entry.IsExpired() {
+				// Cache hit with valid data - reduces downstream load
+				return entry.Value, nil
+			}
+		}
+	}
+
+	// Cache miss or NoCache: fetch from source
+	value, err := pf.fetchFunc(ctx, params)
+	if err != nil {
+		return zero, err
+	}
+
+	// Store in cache for future preflight checks
+	pf.cache.Set(key, value, pf.control.MaxAge)
+	return value, nil
+}
+
+// FetchStaleWhileRevalidate returns stale data immediately while revalidating in background
+func (pf *ParametricFetcher[P, T]) FetchStaleWhileRevalidate(ctx context.Context, params P) (T, error) {
+	// Generate cache key from parameters
+	key := pf.keyFunc(params)
+	
+	// Check if we have stale data
+	if entry, found := pf.cache.Get(key); found {
+		if entry.IsStale() && pf.control.StaleWhileRevalidate {
+			// Return stale data immediately
+			go func() {
+				// Revalidate in background with a fresh context to avoid cancellation issues
+				bgCtx := context.Background()
+				if value, err := pf.fetchFunc(bgCtx, params); err == nil {
+					pf.cache.Set(key, value, pf.control.MaxAge)
+				}
+			}()
+			return entry.Value, nil
+		}
+		if !entry.IsExpired() {
+			return entry.Value, nil
+		}
+	}
+
+	// No stale data available, fetch synchronously
+	return pf.Fetch(ctx, params)
+}
+
+// SetCacheControl updates the cache control directives
+func (pf *ParametricFetcher[P, T]) SetCacheControl(control *CacheControl) {
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	pf.control = control
+}
+
+// ClearCache clears all cached entries
+func (pf *ParametricFetcher[P, T]) ClearCache() {
+	pf.cache.Clear()
+}
+
+// SimpleKeyFunc creates a KeyFunc from a simple function
+// Useful for common key generation patterns
+func SimpleKeyFunc[P any](fn func(P) string) KeyFunc[P] {
+	return fn
+}
+
+// StringKeyFunc creates a KeyFunc that uses the parameter directly as a string key
+// Useful when the parameter is already a string identifier
+func StringKeyFunc() KeyFunc[string] {
+	return func(s string) string { return s }
+}
+
+// FormatKeyFunc creates a KeyFunc using a format string
+// Example: FormatKeyFunc[int]("user:%d") generates keys like "user:123"
+func FormatKeyFunc[P any](format string) KeyFunc[P] {
+	return func(params P) string {
+		return fmt.Sprintf(format, params)
+	}
 }

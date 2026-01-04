@@ -25,24 +25,78 @@ func SimulateDBFetch(id string) string {
 func main() {
 	fmt.Println("=== Sync Preflight & Caching Examples ===\n")
 
-	demo1CachedGroupBasic()
+	demo1ParametricFetcher()
 	fmt.Println("\n" + strings.Repeat("=", 50) + "\n")
 
-	demo2PreflightFetcher()
+	demo2CachedGroupBasic()
 	fmt.Println("\n" + strings.Repeat("=", 50) + "\n")
 
-	demo3NoCacheMode()
+	demo3PreflightFetcher()
 	fmt.Println("\n" + strings.Repeat("=", 50) + "\n")
 
-	demo4StaleWhileRevalidate()
+	demo4NoCacheMode()
 	fmt.Println("\n" + strings.Repeat("=", 50) + "\n")
 
-	demo5ReducedDownstreamLoad()
+	demo5StaleWhileRevalidate()
+	fmt.Println("\n" + strings.Repeat("=", 50) + "\n")
+
+	demo6ReducedDownstreamLoad()
 }
 
-// Example 1: CachedGroup with automatic cache preflight
-func demo1CachedGroupBasic() {
-	fmt.Println("Demo 1: CachedGroup with Automatic Preflight")
+// Example 1: ParametricFetcher with automatic key generation (RECOMMENDED)
+func demo1ParametricFetcher() {
+	fmt.Println("Demo 1: ParametricFetcher - Automatic Key Generation")
+	fmt.Println("No manual key construction needed - keys are generated automatically!\n")
+
+	// Counter for DB calls
+	dbCallCount := 0
+
+	// Fetch function takes user ID directly - no manual key construction!
+	fetchUser := func(ctx context.Context, userID int) (string, error) {
+		dbCallCount++
+		fmt.Printf("  -> DB Call #%d for user ID: %d\n", dbCallCount, userID)
+		time.Sleep(DBLatencyMs)
+		return fmt.Sprintf("User-%d-Data", userID), nil
+	}
+
+	// Automatic key generation using FormatKeyFunc
+	keyFunc := goroutine.FormatKeyFunc[int]("user:%d")
+	control := &goroutine.CacheControl{
+		NoCache: false,
+		MaxAge:  1 * time.Minute,
+	}
+
+	fetcher := goroutine.NewParametricFetcher(fetchUser, keyFunc, control)
+	ctx := context.Background()
+
+	fmt.Println("Fetching user 123 three times:")
+	
+	// First fetch - DB call
+	start := time.Now()
+	user1, _ := fetcher.Fetch(ctx, 123) // Just pass 123, not "user:123"!
+	elapsed1 := time.Since(start)
+	fmt.Printf("  [1] %s (took %v)\n", user1, elapsed1)
+
+	// Second fetch - cache hit (automatic key matching)
+	start = time.Now()
+	user2, _ := fetcher.Fetch(ctx, 123) // Same parameter, automatic cache hit
+	elapsed2 := time.Since(start)
+	fmt.Printf("  [2] %s (took %v)\n", user2, elapsed2)
+
+	// Third fetch - also cache hit
+	start = time.Now()
+	user3, _ := fetcher.Fetch(ctx, 123)
+	elapsed3 := time.Since(start)
+	fmt.Printf("  [3] %s (took %v)\n", user3, elapsed3)
+
+	fmt.Printf("\nTotal DB calls: %d (saved 2 calls)\n", dbCallCount)
+	fmt.Printf("Speedup: %.0fx faster with cache\n", float64(elapsed1)/float64(elapsed2))
+	fmt.Println("✓ Keys generated automatically - no manual construction!")
+}
+
+// Example 2: CachedGroup with automatic cache preflight
+func demo2CachedGroupBasic() {
+	fmt.Println("Demo 2: CachedGroup with Automatic Preflight")
 	fmt.Println("First call fetches from DB, second call uses cache\n")
 
 	cg := goroutine.NewCachedGroup()
@@ -83,8 +137,8 @@ func demo1CachedGroupBasic() {
 }
 
 // Example 2: PreflightFetcher for reducing downstream load
-func demo2PreflightFetcher() {
-	fmt.Println("Demo 2: PreflightFetcher Pattern")
+func demo3PreflightFetcher() {
+	fmt.Println("Demo 3: PreflightFetcher Pattern")
 	fmt.Println("Demonstrates cache-first pattern to reduce DB load\n")
 
 	// Simulate DB calls counter
@@ -124,8 +178,8 @@ func demo2PreflightFetcher() {
 }
 
 // Example 3: NoCache mode for fresh data
-func demo3NoCacheMode() {
-	fmt.Println("Demo 3: NoCache Mode")
+func demo4NoCacheMode() {
+	fmt.Println("Demo 4: NoCache Mode")
 	fmt.Println("Force fetch from source, bypassing cache preflight\n")
 
 	callCount := 0
@@ -155,8 +209,8 @@ func demo3NoCacheMode() {
 }
 
 // Example 4: Stale-While-Revalidate pattern
-func demo4StaleWhileRevalidate() {
-	fmt.Println("Demo 4: Stale-While-Revalidate")
+func demo5StaleWhileRevalidate() {
+	fmt.Println("Demo 5: Stale-While-Revalidate")
 	fmt.Println("Return stale data immediately, revalidate in background\n")
 
 	fetchFunc := func(ctx context.Context, key string) (string, error) {
@@ -200,8 +254,8 @@ func demo4StaleWhileRevalidate() {
 }
 
 // Example 5: Demonstrating reduced downstream load
-func demo5ReducedDownstreamLoad() {
-	fmt.Println("Demo 5: Reduced Downstream Load")
+func demo6ReducedDownstreamLoad() {
+	fmt.Println("Demo 6: Reduced Downstream Load")
 	fmt.Println("Compare DB load with and without preflight caching\n")
 
 	// Scenario: Fetching user data multiple times

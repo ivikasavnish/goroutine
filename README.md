@@ -223,7 +223,52 @@ func main() {
 }
 ```
 
-### Cache & Preflight
+### Cache & Preflight (Recommended: ParametricFetcher)
+
+Use ParametricFetcher for automatic key generation from parameters - no manual key construction needed:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+    "github.com/ivikasavnish/goroutine"
+)
+
+func main() {
+    // Fetch function takes user ID directly - no manual keys!
+    fetchUser := func(ctx context.Context, userID int) (string, error) {
+        time.Sleep(500 * time.Millisecond) // Simulate DB latency
+        return fmt.Sprintf("User-%d-Data", userID), nil
+    }
+    
+    // Automatic key generation using FormatKeyFunc
+    keyFunc := goroutine.FormatKeyFunc[int]("user:%d")
+    control := &goroutine.CacheControl{
+        NoCache: false,
+        MaxAge:  1 * time.Minute,
+    }
+    
+    fetcher := goroutine.NewParametricFetcher(fetchUser, keyFunc, control)
+    ctx := context.Background()
+    
+    // Just pass the user ID - key is generated automatically!
+    user1, _ := fetcher.Fetch(ctx, 123) // DB call
+    fmt.Println(user1) // User-123-Data
+    
+    // Same parameter = automatic cache hit
+    user2, _ := fetcher.Fetch(ctx, 123) // Cache hit!
+    fmt.Println(user2) // User-123-Data (instant)
+    
+    // Different parameter = new cache entry
+    user3, _ := fetcher.Fetch(ctx, 456) // DB call for new user
+    fmt.Println(user3) // User-456-Data
+}
+```
+
+### Cache & Preflight (Alternative: PreflightFetcher with manual keys)
 
 Reduce downstream load on databases and APIs with cache preflight:
 
@@ -466,6 +511,27 @@ Updates the cache control directives.
 #### `(*PreflightFetcher[T]) ClearCache()`
 Clears all cached entries.
 
+#### `NewParametricFetcher[P, T any](fetchFunc func(context.Context, P) (T, error), keyFunc KeyFunc[P], control *CacheControl) *ParametricFetcher[P, T]`
+Creates a fetcher with automatic key generation from parameters. The keyFunc generates cache keys automatically from parameters. If keyFunc is nil, uses default string conversion. **Recommended for most use cases.**
+
+#### `(*ParametricFetcher[P, T]) Fetch(ctx context.Context, params P) (T, error)`
+Retrieves data with automatic key generation from parameters. No manual key construction needed.
+
+#### `(*ParametricFetcher[P, T]) FetchStaleWhileRevalidate(ctx context.Context, params P) (T, error)`
+Returns stale data immediately while revalidating in background, with automatic key generation.
+
+#### `(*ParametricFetcher[P, T]) SetCacheControl(control *CacheControl)`
+Updates the cache control directives.
+
+#### `(*ParametricFetcher[P, T]) ClearCache()`
+Clears all cached entries.
+
+#### Key Generation Helpers
+
+- `FormatKeyFunc[P any](format string) KeyFunc[P]` - Creates a KeyFunc using a format string (e.g., `"user:%d"`)
+- `StringKeyFunc() KeyFunc[string]` - Uses the parameter directly as the cache key
+- `SimpleKeyFunc[P any](fn func(P) string) KeyFunc[P]` - Wraps a custom key generation function
+
 #### Cache Control Directives
 
 ```go
@@ -501,7 +567,7 @@ Comprehensive examples are available in the `example/` directory:
 - **[SuperSlice Examples](example/superslice_demo/)** - 18 examples showing parallel slice processing
 - **[Distributed Backend Examples](example/distibuted_backend/)** - SafeChannel with multiple backends
 - **[Recasting Examples](example/recasting_demo/)** - Type conversion utilities
-- **[Cache & Preflight Examples](example/cache_preflight_demo/)** - 5 examples showing cache-first patterns to reduce downstream load
+- **[Cache & Preflight Examples](example/cache_preflight_demo/)** - 6 examples showing cache-first patterns with automatic key generation
 
 ## Performance Characteristics
 
