@@ -241,9 +241,6 @@ func main() {
 ### Cache & Preflight (Recommended: ParametricFetcher)
 
 Use ParametricFetcher for automatic key generation from parameters - no manual key construction needed:
-### Pipeline Pattern
-
-Create composable data processing pipelines:
 
 ```go
 package main
@@ -286,29 +283,9 @@ func main() {
 }
 ```
 
-### Cache & Preflight (Alternative: PreflightFetcher with manual keys)
+### Cache & Preflight (Alternative: PreflightFetcher)
 
-Reduce downstream load on databases and APIs with cache preflight:
-    // Create a pipeline with multiple stages
-    pipeline := goroutine.NewPipeline[int]().
-        AddStage(func(n int) int { return n * 2 }).
-        AddStage(func(n int) int { return n + 10 }).
-        AddStage(func(n int) int { return n * n })
-    
-    // Process single item
-    result := pipeline.Execute(5) // ((5*2)+10)^2 = 400
-    fmt.Printf("Result: %d\n", result)
-    
-    // Process multiple items asynchronously
-    items := []int{1, 2, 3, 4, 5}
-    results := pipeline.ExecuteAsync(context.Background(), items)
-    fmt.Printf("Results: %v\n", results)
-}
-```
-
-### Fan-Out/Fan-In Pattern
-
-Distribute work across multiple workers:
+Reduce downstream load on databases and APIs with cache preflight and manual keys:
 
 ```go
 package main
@@ -356,6 +333,64 @@ func main() {
 }
 ```
 
+### Pipeline Pattern
+
+Create composable data processing pipelines:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "github.com/ivikasavnish/goroutine"
+)
+
+func main() {
+    // Create a pipeline with multiple stages
+    pipeline := goroutine.NewPipeline[int]().
+        AddStage(func(n int) int { return n * 2 }).
+        AddStage(func(n int) int { return n + 10 }).
+        AddStage(func(n int) int { return n * n })
+    
+    // Process single item
+    result := pipeline.Execute(5) // ((5*2)+10)^2 = 400
+    fmt.Printf("Result: %d\n", result)
+    
+    // Process multiple items asynchronously
+    items := []int{1, 2, 3, 4, 5}
+    results := pipeline.ExecuteAsync(context.Background(), items)
+    fmt.Printf("Results: %v\n", results)
+}
+```
+
+### Fan-Out/Fan-In Pattern
+
+Distribute work across multiple workers:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "github.com/ivikasavnish/goroutine"
+)
+
+func main() {
+    // Create fan-out with 3 workers
+    fanOut := goroutine.NewFanOut[int, int](3)
+    
+    items := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+    results := fanOut.ProcessWithIndex(context.Background(), items, 
+        func(idx int, n int) int {
+            return n * n
+        })
+    
+    fmt.Printf("Results: %v\n", results)
+}
+```
+
 ### CachedGroup with Preflight
 
 Use CachedGroup for async operations with automatic caching:
@@ -400,22 +435,6 @@ func main() {
 ### Stale-While-Revalidate Pattern
 
 Return stale data immediately while revalidating in background:
-    // Create fan-out with 3 workers
-    fanOut := goroutine.NewFanOut[int, int](3)
-    
-    items := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
-    results := fanOut.ProcessWithIndex(context.Background(), items, 
-        func(idx int, n int) int {
-            return n * n
-        })
-    
-    fmt.Printf("Results: %v\n", results)
-}
-```
-
-### Smart Concurrency Wrapper
-
-Unified API with retry, timeout, rate limiting, and circuit breaker:
 
 ```go
 package main
@@ -429,7 +448,7 @@ import (
 
 func main() {
     fetchFunc := func(ctx context.Context, key string) (string, error) {
-        time.Sleep(500 * time.Millisecond) // Slow fetch
+        time.Sleep(500 * time.Millisecond)
         return fmt.Sprintf("Fresh-%d", time.Now().Unix()), nil
     }
     
@@ -453,6 +472,24 @@ func main() {
     val2, _ := fetcher.FetchStaleWhileRevalidate(ctx, "key1")
     fmt.Println(val2) // Fresh-1234567890 (took <1µs, stale but instant!)
     // Background revalidation happens automatically
+}
+```
+
+### Smart Concurrency Wrapper
+
+Unified API with retry, timeout, rate limiting, and circuit breaker:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+    "github.com/ivikasavnish/goroutine"
+)
+
+func main() {
     // Configure wrapper
     config := &goroutine.ConcurrencyConfig{
         MaxConcurrency:          3,

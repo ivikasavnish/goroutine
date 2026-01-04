@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-01-04
+
+### Fixed
+- Fixed README.md structural inconsistencies with mismatched code examples and section headers
+- Reorganized Quick Start section to ensure code examples match their section titles
+- Removed duplicate "Cache & Preflight" sections (was appearing 4 times)
+- Fixed "Pipeline Pattern" section that was incorrectly nested within Cache section
+- Fixed "Fan-Out/Fan-In Pattern" that had Cache code instead of Fan-Out code
+- Fixed "Stale-While-Revalidate" section that had Fan-Out code
+
+### Changed
+- Consolidated duplicate documentation sections for better clarity
+- Improved overall README consistency and readability
+- Separated ParametricFetcher and PreflightFetcher examples more clearly
+
 ## [1.0.5] - 2026-01-02
 
 ### Fixed
@@ -57,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Named goroutine management with cancellation support
 - Context-based lifecycle management
 
+[1.0.6]: https://github.com/ivikasavnish/goroutine/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/ivikasavnish/goroutine/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/ivikasavnish/goroutine/compare/v1.0.2...v1.0.4
 [1.0.2]: https://github.com/ivikasavnish/goroutine/compare/v1.0.1...v1.0.2
