@@ -36,6 +36,22 @@ A powerful Go library providing advanced concurrent processing utilities, includ
 - Flexible type conversion utilities
 - Safe type transformations
 
+### 🔀 **Concurrency Patterns (NEW)**
+- **Pipeline**: Composable multi-stage data processing
+- **Fan-Out/Fan-In**: Distribute work across workers and aggregate results
+- **Rate Limiter**: Control operation execution rate
+- **Semaphore**: Resource access control with permits
+- **Generator**: Lazy value production with context support
+- **Circuit Breaker**: Fault tolerance and failure handling
+
+### 🎁 **Smart Concurrency Wrapper (NEW)**
+- Unified API for concurrency control
+- Automatic retry with configurable delays
+- Timeout management
+- Rate limiting integration
+- Circuit breaker for fault tolerance
+- Composable with other patterns
+
 ## Installation
 
 ```bash
@@ -215,6 +231,109 @@ func main() {
 }
 ```
 
+### Pipeline Pattern
+
+Create composable data processing pipelines:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "github.com/ivikasavnish/goroutine"
+)
+
+func main() {
+    // Create a pipeline with multiple stages
+    pipeline := goroutine.NewPipeline[int]().
+        AddStage(func(n int) int { return n * 2 }).
+        AddStage(func(n int) int { return n + 10 }).
+        AddStage(func(n int) int { return n * n })
+    
+    // Process single item
+    result := pipeline.Execute(5) // ((5*2)+10)^2 = 400
+    fmt.Printf("Result: %d\n", result)
+    
+    // Process multiple items asynchronously
+    items := []int{1, 2, 3, 4, 5}
+    results := pipeline.ExecuteAsync(context.Background(), items)
+    fmt.Printf("Results: %v\n", results)
+}
+```
+
+### Fan-Out/Fan-In Pattern
+
+Distribute work across multiple workers:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "github.com/ivikasavnish/goroutine"
+)
+
+func main() {
+    // Create fan-out with 3 workers
+    fanOut := goroutine.NewFanOut[int, int](3)
+    
+    items := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+    results := fanOut.ProcessWithIndex(context.Background(), items, 
+        func(idx int, n int) int {
+            return n * n
+        })
+    
+    fmt.Printf("Results: %v\n", results)
+}
+```
+
+### Smart Concurrency Wrapper
+
+Unified API with retry, timeout, rate limiting, and circuit breaker:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+    "github.com/ivikasavnish/goroutine"
+)
+
+func main() {
+    // Configure wrapper
+    config := &goroutine.ConcurrencyConfig{
+        MaxConcurrency:          3,
+        Timeout:                 5 * time.Second,
+        RateLimit:               10,
+        RetryAttempts:           2,
+        RetryDelay:              100 * time.Millisecond,
+        EnableCircuitBreaker:    true,
+        CircuitBreakerThreshold: 5,
+    }
+    
+    wrapper := goroutine.NewConcurrencyWrapper[int, int](config)
+    defer wrapper.Close()
+    
+    items := []int{1, 2, 3, 4, 5}
+    results, err := wrapper.Process(context.Background(), items, 
+        func(n int) (int, error) {
+            // Your processing logic here
+            return n * 2, nil
+        })
+    
+    if err != nil {
+        fmt.Printf("Error: %v\n", err)
+        return
+    }
+    
+    fmt.Printf("Results: %v\n", results)
+}
+```
+
 ## API Reference
 
 ### Async Resolve
@@ -288,6 +407,85 @@ Cancels a named goroutine.
 #### `(*GoManager) AddCancelFunc(name string, cancelFunc context.CancelFunc)`
 Adds a cancel function for a named goroutine.
 
+### Concurrency Patterns
+
+#### `NewPipeline[T any]() *Pipeline[T]`
+Creates a new pipeline for composable data processing.
+
+#### `(*Pipeline[T]) AddStage(stage func(T) T) *Pipeline[T]`
+Adds a processing stage to the pipeline. Returns the pipeline for chaining.
+
+#### `(*Pipeline[T]) Execute(item T) T`
+Executes the pipeline on a single item.
+
+#### `(*Pipeline[T]) ExecuteAsync(ctx context.Context, items []T) []T`
+Processes items through the pipeline concurrently.
+
+#### `NewFanOut[T, R any](numWorkers int) *FanOut[T, R]`
+Creates a fan-out pattern with specified number of workers.
+
+#### `(*FanOut[T, R]) ProcessWithIndex(ctx context.Context, items []T, processor func(int, T) R) []R`
+Distributes work across workers and collects results in order.
+
+#### `NewRateLimiter(rate int) *RateLimiter`
+Creates a rate limiter with specified operations per second.
+
+#### `(*RateLimiter) Wait(ctx context.Context) error`
+Blocks until a token is available.
+
+#### `(*RateLimiter) TryAcquire() bool`
+Attempts to acquire a token without blocking.
+
+#### `(*RateLimiter) Stop()`
+Stops the rate limiter and releases resources.
+
+#### `NewSemaphore(permits int) *Semaphore`
+Creates a semaphore with specified number of permits.
+
+#### `(*Semaphore) Acquire(ctx context.Context) error`
+Acquires a permit, blocking if none available.
+
+#### `(*Semaphore) Release()`
+Releases a permit.
+
+#### `NewGenerator[T any](ctx context.Context, bufferSize int, producer func(context.Context, chan<- T)) *Generator[T]`
+Creates a generator with a producer function.
+
+#### `(*Generator[T]) Next() (T, bool)`
+Retrieves the next value from the generator.
+
+#### `(*Generator[T]) Collect() []T`
+Collects all remaining values into a slice.
+
+#### `(*Generator[T]) Close()`
+Stops the generator.
+
+### Smart Concurrency Wrapper
+
+#### `NewConcurrencyWrapper[T, R any](config *ConcurrencyConfig) *ConcurrencyWrapper[T, R]`
+Creates a new concurrency wrapper with the given configuration.
+
+#### `DefaultConcurrencyConfig() *ConcurrencyConfig`
+Returns a configuration with sensible defaults.
+
+#### `(*ConcurrencyWrapper[T, R]) Process(ctx context.Context, items []T, processor func(T) (R, error)) ([]R, error)`
+Processes items with automatic concurrency control, retry, rate limiting, and circuit breaker.
+
+#### `(*ConcurrencyWrapper[T, R]) Close()`
+Cleans up wrapper resources.
+
+#### `NewCircuitBreaker(threshold int) *CircuitBreaker`
+Creates a circuit breaker with specified failure threshold.
+
+#### `(*CircuitBreaker) Allow() bool`
+Checks if a request should be allowed.
+
+#### `(*CircuitBreaker) RecordSuccess()`
+Records a successful operation.
+
+#### `(*CircuitBreaker) RecordFailure()`
+Records a failed operation.
+
 ## Examples
 
 Comprehensive examples are available in the `example/` directory:
@@ -296,6 +494,7 @@ Comprehensive examples are available in the `example/` directory:
 - **[SuperSlice Examples](example/superslice_demo/)** - 18 examples showing parallel slice processing
 - **[Distributed Backend Examples](example/distibuted_backend/)** - SafeChannel with multiple backends
 - **[Recasting Examples](example/recasting_demo/)** - Type conversion utilities
+- **[Concurrency Patterns Examples](example/concurrency_patterns/)** - 9 examples demonstrating pipeline, fan-out/fan-in, rate limiting, semaphore, generator, and smart wrapper patterns
 
 ## Performance Characteristics
 
@@ -309,6 +508,14 @@ Comprehensive examples are available in the `example/` directory:
 - **Parallel execution**: All tasks run concurrently
 - **Total time**: Max task duration (not sum of all durations)
 - **Minimal overhead**: Uses efficient `sync.WaitGroup` internally
+
+### Concurrency Patterns
+- **Pipeline**: Minimal overhead, composable stages, sequential execution per item
+- **Fan-Out/Fan-In**: Distributes work efficiently, maintains result order, scales with workers
+- **Rate Limiter**: Token bucket algorithm, precise rate control, minimal memory
+- **Semaphore**: Fast acquire/release, context-aware, no busy waiting
+- **Generator**: Lazy evaluation, memory efficient, context-based cancellation
+- **Smart Wrapper**: Combines patterns with minimal overhead, configurable policies
 
 ## Use Cases
 
@@ -330,6 +537,42 @@ Comprehensive examples are available in the `example/` directory:
 - Distributed systems with multiple backends
 - Timeout-sensitive operations
 - Thread-safe channel operations
+
+**Pipeline:**
+- ETL (Extract, Transform, Load) operations
+- Multi-stage data processing
+- Sequential transformations
+- Composable data workflows
+
+**Fan-Out/Fan-In:**
+- Batch API calls with aggregation
+- Parallel data processing with order preservation
+- Load distribution across workers
+- High-throughput processing
+
+**Rate Limiter:**
+- API throttling and quota management
+- Preventing service overload
+- Controlled resource access
+- Batch job rate control
+
+**Semaphore:**
+- Database connection pooling
+- Limited resource access control
+- Concurrency limiting
+- Worker pool management
+
+**Generator:**
+- Stream processing
+- Infinite sequences
+- On-demand data production
+- Memory-efficient iteration
+
+**Smart Wrapper:**
+- Resilient service calls
+- Fault-tolerant distributed operations
+- Automatic retry with backoff
+- Circuit breaker for failing services
 
 ### ❌ Not Ideal For
 
