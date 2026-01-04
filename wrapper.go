@@ -264,8 +264,9 @@ func (cb *CircuitBreaker) RecordSuccess() {
 
 	if cb.state == CircuitHalfOpen {
 		cb.state = CircuitClosed
-		cb.failureCount = 0
 	}
+	// Reset failure count on success to prevent accumulation
+	cb.failureCount = 0
 }
 
 // RecordFailure records a failed operation

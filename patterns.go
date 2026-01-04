@@ -205,6 +205,7 @@ type RateLimiter struct {
 	ticker   *time.Ticker
 	tokens   chan struct{}
 	capacity int
+	done     chan struct{}
 }
 
 // NewRateLimiter creates a rate limiter with specified rate (operations per second)
@@ -216,6 +217,7 @@ func NewRateLimiter(rate int) *RateLimiter {
 	interval := time.Second / time.Duration(rate)
 	ticker := time.NewTicker(interval)
 	tokens := make(chan struct{}, rate)
+	done := make(chan struct{})
 
 	// Fill initial tokens
 	for i := 0; i < rate; i++ {
@@ -226,15 +228,21 @@ func NewRateLimiter(rate int) *RateLimiter {
 		ticker:   ticker,
 		tokens:   tokens,
 		capacity: rate,
+		done:     done,
 	}
 
 	// Start token refill goroutine
 	go func() {
-		for range ticker.C {
+		for {
 			select {
-			case tokens <- struct{}{}:
-			default:
-				// Channel full, skip
+			case <-done:
+				return
+			case <-ticker.C:
+				select {
+				case tokens <- struct{}{}:
+				default:
+					// Channel full, skip
+				}
 			}
 		}
 	}()
@@ -264,13 +272,15 @@ func (rl *RateLimiter) TryAcquire() bool {
 
 // Stop stops the rate limiter
 func (rl *RateLimiter) Stop() {
+	close(rl.done)
 	rl.ticker.Stop()
-	close(rl.tokens)
 }
 
 // Semaphore controls concurrent access to a resource
 type Semaphore struct {
-	permits chan struct{}
+	permits  chan struct{}
+	acquired int
+	mu       sync.Mutex
 }
 
 // NewSemaphore creates a semaphore with specified number of permits
@@ -279,7 +289,8 @@ func NewSemaphore(permits int) *Semaphore {
 		permits = 1
 	}
 	return &Semaphore{
-		permits: make(chan struct{}, permits),
+		permits:  make(chan struct{}, permits),
+		acquired: 0,
 	}
 }
 
@@ -289,6 +300,9 @@ func (s *Semaphore) Acquire(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case s.permits <- struct{}{}:
+		s.mu.Lock()
+		s.acquired++
+		s.mu.Unlock()
 		return nil
 	}
 }
@@ -297,6 +311,9 @@ func (s *Semaphore) Acquire(ctx context.Context) error {
 func (s *Semaphore) TryAcquire() bool {
 	select {
 	case s.permits <- struct{}{}:
+		s.mu.Lock()
+		s.acquired++
+		s.mu.Unlock()
 		return true
 	default:
 		return false
@@ -305,7 +322,12 @@ func (s *Semaphore) TryAcquire() bool {
 
 // Release releases a permit
 func (s *Semaphore) Release() {
-	<-s.permits
+	s.mu.Lock()
+	if s.acquired > 0 {
+		s.acquired--
+		<-s.permits
+	}
+	s.mu.Unlock()
 }
 
 // AcquireAll acquires all permits
@@ -323,10 +345,13 @@ func (s *Semaphore) AcquireAll(ctx context.Context) error {
 	return nil
 }
 
-// ReleaseAll releases all permits
+// ReleaseAll releases all acquired permits
 func (s *Semaphore) ReleaseAll() {
-	capacity := cap(s.permits)
-	for i := 0; i < capacity; i++ {
+	s.mu.Lock()
+	count := s.acquired
+	s.mu.Unlock()
+	
+	for i := 0; i < count; i++ {
 		s.Release()
 	}
 }
