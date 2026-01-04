@@ -1,7 +1,10 @@
 package goroutine
 
 import (
+	"fmt"
 	"hash/fnv"
+	"math"
+	"strconv"
 	"sync"
 )
 
@@ -203,43 +206,59 @@ func nextPowerOf2(n uint32) uint32 {
 }
 
 // keyToBytes converts a comparable key to bytes for hashing
-// This is a simplified approach that works for common types
+// Uses fmt.Sprint for consistent conversion of all comparable types
 func keyToBytes(key any) []byte {
-	// Use a simple string conversion approach
+	// For common types, use optimized byte conversion
 	switch v := key.(type) {
 	case string:
 		return []byte(v)
 	case int:
-		return []byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24),
-			byte(v >> 32), byte(v >> 40), byte(v >> 48), byte(v >> 56)}
+		// Handle both 32-bit and 64-bit architectures
+		if strconv.IntSize == 64 {
+			return []byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24),
+				byte(v >> 32), byte(v >> 40), byte(v >> 48), byte(v >> 56)}
+		}
+		return []byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24)}
 	case int32:
 		return []byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24)}
 	case int64:
 		return []byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24),
 			byte(v >> 32), byte(v >> 40), byte(v >> 48), byte(v >> 56)}
 	case uint:
-		return []byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24),
-			byte(v >> 32), byte(v >> 40), byte(v >> 48), byte(v >> 56)}
+		// Handle both 32-bit and 64-bit architectures
+		if strconv.IntSize == 64 {
+			return []byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24),
+				byte(v >> 32), byte(v >> 40), byte(v >> 48), byte(v >> 56)}
+		}
+		return []byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24)}
 	case uint32:
 		return []byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24)}
 	case uint64:
 		return []byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24),
 			byte(v >> 32), byte(v >> 40), byte(v >> 48), byte(v >> 56)}
+	case uint8:
+		return []byte{byte(v)}
+	case uint16:
+		return []byte{byte(v), byte(v >> 8)}
+	case int8:
+		return []byte{byte(v)}
+	case int16:
+		return []byte{byte(v), byte(v >> 8)}
+	case float32:
+		bits := math.Float32bits(v)
+		return []byte{byte(bits), byte(bits >> 8), byte(bits >> 16), byte(bits >> 24)}
+	case float64:
+		bits := math.Float64bits(v)
+		return []byte{byte(bits), byte(bits >> 8), byte(bits >> 16), byte(bits >> 24),
+			byte(bits >> 32), byte(bits >> 40), byte(bits >> 48), byte(bits >> 56)}
+	case bool:
+		if v {
+			return []byte{1}
+		}
+		return []byte{0}
 	default:
-		// Fallback to fmt.Sprint for other types
-		return []byte(sprint(v))
-	}
-}
-
-// sprint is a helper function to convert any value to string
-func sprint(v any) string {
-	// Use a simple type assertion approach
-	switch val := v.(type) {
-	case string:
-		return val
-	default:
-		// For other types, we need to use reflection or type-specific conversion
-		// This is a simplified version that handles basic types
-		return ""
+		// Fallback to fmt.Sprint for other comparable types
+		// This ensures all types get properly hashed
+		return []byte(fmt.Sprint(v))
 	}
 }

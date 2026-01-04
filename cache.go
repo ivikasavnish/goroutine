@@ -90,7 +90,8 @@ func (c *Cache[K, V]) Clear() {
 // Cleanup removes expired entries from the cache
 func (c *Cache[K, V]) Cleanup() {
 	now := time.Now()
-	keysToDelete := make([]K, 0)
+	// Pre-allocate with reasonable capacity to reduce allocations
+	keysToDelete := make([]K, 0, 16)
 	
 	c.data.Range(func(key K, entry *CacheEntry[V]) bool {
 		if now.After(entry.ExpiresAt) {
@@ -99,6 +100,7 @@ func (c *Cache[K, V]) Cleanup() {
 		return true
 	})
 	
+	// Delete all expired keys in a batch
 	for _, key := range keysToDelete {
 		c.data.Delete(key)
 	}
