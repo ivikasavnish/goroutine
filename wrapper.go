@@ -166,17 +166,6 @@ func (cw *ConcurrencyWrapper[T, R]) Process(ctx context.Context, items []T, proc
 	return results, nil
 }
 
-// ProcessWithIndex is similar to Process but provides index to processor
-func (cw *ConcurrencyWrapper[T, R]) ProcessWithIndex(ctx context.Context, items []T, processor func(int, T) (R, error)) ([]R, error) {
-	wrapper := func(item T) (R, error) {
-		// We need to find the index - this is a limitation of the wrapper approach
-		// For now, we'll use a simpler approach
-		var zero R
-		return zero, errors.New("use Process instead - ProcessWithIndex requires separate implementation")
-	}
-	return cw.Process(ctx, items, wrapper)
-}
-
 // executeWithRetry executes the processor with retry logic
 func (cw *ConcurrencyWrapper[T, R]) executeWithRetry(ctx context.Context, item T, processor func(T) (R, error)) (R, error) {
 	var result R
@@ -248,8 +237,8 @@ func NewCircuitBreaker(threshold int) *CircuitBreaker {
 
 // Allow checks if a request should be allowed
 func (cb *CircuitBreaker) Allow() bool {
-	cb.mu.RLock()
-	defer cb.mu.RUnlock()
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 
 	switch cb.state {
 	case CircuitClosed:
@@ -257,11 +246,7 @@ func (cb *CircuitBreaker) Allow() bool {
 	case CircuitOpen:
 		// Check if we should transition to half-open
 		if time.Since(cb.lastFailure) > cb.resetTimeout {
-			cb.mu.RUnlock()
-			cb.mu.Lock()
 			cb.state = CircuitHalfOpen
-			cb.mu.Unlock()
-			cb.mu.RLock()
 			return true
 		}
 		return false

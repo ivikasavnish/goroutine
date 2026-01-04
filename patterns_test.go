@@ -345,6 +345,21 @@ func BenchmarkFanOut(b *testing.B) {
 	}
 }
 
+func BenchmarkFanOutProcess(b *testing.B) {
+	fanOut := NewFanOut[int, int](4)
+	items := make([]int, 100)
+	for i := range items {
+		items[i] = i
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		fanOut.Process(context.Background(), items, func(n int) int {
+			return n * n
+		})
+	}
+}
+
 func BenchmarkSemaphore(b *testing.B) {
 	sem := NewSemaphore(10)
 	ctx := context.Background()

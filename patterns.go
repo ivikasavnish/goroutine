@@ -80,7 +80,12 @@ func (f *FanOut[T, R]) Process(ctx context.Context, items []T, processor func(T)
 		return []R{}
 	}
 
-	jobs := make(chan T, len(items))
+	type job struct {
+		index int
+		item  T
+	}
+
+	jobs := make(chan job, len(items))
 	results := make(chan struct {
 		index  int
 		result R
@@ -92,33 +97,27 @@ func (f *FanOut[T, R]) Process(ctx context.Context, items []T, processor func(T)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for job := range jobs {
+			for j := range jobs {
 				select {
 				case <-ctx.Done():
 					return
 				default:
-					// Find index by iterating (not efficient but works for demo)
-					for idx, item := range items {
-						if &item == &job {
-							results <- struct {
-								index  int
-								result R
-							}{idx, processor(job)}
-							break
-						}
-					}
+					results <- struct {
+						index  int
+						result R
+					}{j.index, processor(j.item)}
 				}
 			}
 		}()
 	}
 
 	// Send jobs
-	for _, item := range items {
+	for i, item := range items {
 		select {
 		case <-ctx.Done():
 			close(jobs)
 			return []R{}
-		case jobs <- item:
+		case jobs <- job{i, item}:
 		}
 	}
 	close(jobs)
