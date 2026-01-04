@@ -1,1 +1,10 @@
 example/superslice_demo/superslice_demo
+example/cache_preflight_demo/demo
+example/cache_preflight_demo/cache_preflight_demo
+example/*/demo
+example/*/*.out
+*.out
+*.exe
+*.dll
+*.so
+*.dylib
