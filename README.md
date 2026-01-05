@@ -59,6 +59,15 @@ A powerful Go library providing advanced concurrent processing utilities, includ
 - Circuit breaker for fault tolerance
 - Composable with other patterns
 
+### 👷 **Worker Pool with Task Scheduling (NEW)**
+- Managed worker pool for concurrent task execution
+- **Immediate Tasks**: Execute tasks as soon as workers are available
+- **Delayed Tasks**: Schedule tasks to run after a specified delay
+- **Cron Jobs**: Recurring task execution with flexible cron expressions
+- Worker lifecycle management (start, stop)
+- Thread-safe task submission
+- Configurable worker count
+
 ## Installation
 
 ```bash
@@ -483,6 +492,64 @@ func main() {
 }
 ```
 
+### Worker Pool with Task Scheduling
+
+Execute immediate tasks, delayed tasks, and cron jobs:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+    "github.com/ivikasavnish/goroutine"
+)
+
+func main() {
+    // Create a worker pool with 5 workers
+    pool := goroutine.NewWorkerPool(5)
+    pool.Start()
+    defer pool.Stop()
+    
+    // Submit immediate task
+    task1 := &goroutine.WorkerTask{
+        ID: "urgent-task",
+        Func: func(ctx context.Context) error {
+            fmt.Println("Processing urgent request...")
+            return nil
+        },
+    }
+    pool.Submit(task1)
+    
+    // Submit delayed task (runs after 2 seconds)
+    task2 := &goroutine.WorkerTask{
+        ID: "email-task",
+        Func: func(ctx context.Context) error {
+            fmt.Println("Sending scheduled email...")
+            return nil
+        },
+    }
+    pool.SubmitDelayed(task2, 2*time.Second)
+    
+    // Submit cron job (runs every 30 seconds)
+    task3 := &goroutine.WorkerTask{
+        ID: "cleanup-job",
+        Func: func(ctx context.Context) error {
+            fmt.Println("Running cleanup...")
+            return nil
+        },
+    }
+    pool.SubmitCron(task3, "@every 30s")
+    
+    // Let tasks run
+    time.Sleep(5 * time.Second)
+    
+    // Cancel cron job
+    pool.CancelCron("cleanup-job")
+}
+```
+
 ## API Reference
 
 ### Async Resolve
@@ -719,6 +786,50 @@ Records a successful operation.
 #### `(*CircuitBreaker) RecordFailure()`
 Records a failed operation.
 
+### Worker Pool
+
+#### `NewWorkerPool(numWorkers int) *WorkerPool`
+Creates a new worker pool with the specified number of workers. If numWorkers <= 0, defaults to 1.
+
+#### `(*WorkerPool) Start()`
+Starts the worker pool and begins processing tasks. Must be called before submitting tasks.
+
+#### `(*WorkerPool) Stop()`
+Stops the worker pool and waits for all workers to finish. Safely handles multiple calls.
+
+#### `(*WorkerPool) Submit(task *WorkerTask) error`
+Submits a task for immediate execution. Returns error if pool is not running.
+
+#### `(*WorkerPool) SubmitDelayed(task *WorkerTask, delay time.Duration) error`
+Submits a task for delayed execution. Task will execute after the specified delay.
+
+#### `(*WorkerPool) SubmitCron(task *WorkerTask, cronExpr string) error`
+Submits a recurring task with a cron schedule. Supported expressions:
+- `@hourly` - Run every hour
+- `@daily` - Run every day at midnight
+- `@weekly` - Run every week
+- `@every 5s` - Run every 5 seconds (supports s, m, h units)
+
+#### `(*WorkerPool) CancelCron(taskID string)`
+Cancels a recurring cron task by its ID.
+
+#### `(*WorkerPool) IsRunning() bool`
+Returns whether the worker pool is currently running.
+
+#### `(*WorkerPool) WorkerCount() int`
+Returns the number of workers in the pool.
+
+#### `NewCronSchedule(expr string) (*CronSchedule, error)`
+Creates a new cron schedule from an expression. Returns error if expression is invalid.
+
+#### `WorkerTask` Structure
+```go
+type WorkerTask struct {
+    ID   string                                // Unique task identifier
+    Func func(ctx context.Context) error      // Task function to execute
+}
+```
+
 ## Examples
 
 Comprehensive examples are available in the `example/` directory:
@@ -729,6 +840,7 @@ Comprehensive examples are available in the `example/` directory:
 - **[Recasting Examples](example/recasting_demo/)** - Type conversion utilities
 - **[Cache & Preflight Examples](example/cache_preflight_demo/)** - 6 examples showing cache-first patterns with automatic key generation
 - **[Concurrency Patterns Examples](example/concurrency_patterns/)** - 9 examples demonstrating pipeline, fan-out/fan-in, rate limiting, semaphore, generator, and smart wrapper patterns
+- **[Worker Pool Examples](example/worker_demo/)** - 4 examples demonstrating immediate tasks, delayed tasks, cron jobs, and mixed task types
 
 ## Performance Characteristics
 
@@ -756,6 +868,15 @@ Comprehensive examples are available in the `example/` directory:
 - **Rate Limiter**: Token bucket algorithm, precise rate control, minimal memory
 - **Semaphore**: Fast acquire/release, context-aware, no busy waiting
 - **Generator**: Lazy evaluation, memory efficient, context-based cancellation
+- **Smart Wrapper**: Combines patterns with minimal overhead, configurable policies
+
+### Worker Pool
+- **Task execution**: Concurrent processing with configurable worker count
+- **Delayed tasks**: Time-based scheduling with millisecond precision
+- **Cron jobs**: Recurring tasks with flexible scheduling (checked every 50ms)
+- **Memory overhead**: Minimal - only task queue and scheduling metadata
+- **Throughput**: Limited by worker count and task duration
+- **Latency**: Immediate tasks execute as soon as workers are available
 - **Smart Wrapper**: Combines patterns with minimal overhead, configurable policies
 
 ## Use Cases
@@ -821,6 +942,16 @@ Comprehensive examples are available in the `example/` directory:
 - Automatic retry with backoff
 - Circuit breaker for failing services
 
+**Worker Pool:**
+- Background job processing
+- Scheduled task execution
+- Email/notification queues
+- Periodic maintenance tasks
+- Batch processing with controlled concurrency
+- Task scheduling systems
+- Delayed message processing
+- Recurring report generation
+
 ### ❌ Not Ideal For
 
 **SuperSlice:**
@@ -836,6 +967,12 @@ Comprehensive examples are available in the `example/` directory:
 - Write-heavy workloads with frequent updates
 - Data that changes constantly and requires real-time accuracy
 - Very low memory environments where cache overhead is prohibitive
+
+**Worker Pool:**
+- Real-time processing requiring microsecond precision
+- Tasks requiring strict ordering guarantees
+- Very high-frequency tasks (>1000/second) - consider dedicated solutions
+- Tasks with complex interdependencies
 
 ## Testing
 
