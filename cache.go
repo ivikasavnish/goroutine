@@ -45,71 +45,64 @@ func (ce *CacheEntry[T]) IsStale() bool {
 }
 
 // Cache provides a simple in-memory cache with TTL support
+// Now uses SwissMap for improved concurrent performance
 type Cache[K comparable, V any] struct {
-	data map[K]*CacheEntry[V]
-	mu   sync.RWMutex
+	data *SwissMap[K, *CacheEntry[V]]
 }
 
 // NewCache creates a new cache instance
 func NewCache[K comparable, V any]() *Cache[K, V] {
 	return &Cache[K, V]{
-		data: make(map[K]*CacheEntry[V]),
+		data: NewSwissMap[K, *CacheEntry[V]](),
 	}
 }
 
 // Get retrieves a value from the cache
 func (c *Cache[K, V]) Get(key K) (*CacheEntry[V], bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	entry, exists := c.data[key]
+	entry, exists := c.data.Get(key)
 	if !exists || !entry.Valid {
 		return nil, false
 	}
-
 	return entry, true
 }
 
 // Set stores a value in the cache with TTL
 func (c *Cache[K, V]) Set(key K, value V, ttl time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	now := time.Now()
-	c.data[key] = &CacheEntry[V]{
+	c.data.Set(key, &CacheEntry[V]{
 		Value:     value,
 		CachedAt:  now,
 		ExpiresAt: now.Add(ttl),
 		Valid:     true,
-	}
+	})
 }
 
 // Delete removes a value from the cache
 func (c *Cache[K, V]) Delete(key K) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	delete(c.data, key)
+	c.data.Delete(key)
 }
 
 // Clear removes all entries from the cache
 func (c *Cache[K, V]) Clear() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.data = make(map[K]*CacheEntry[V])
+	c.data.Clear()
 }
 
 // Cleanup removes expired entries from the cache
 func (c *Cache[K, V]) Cleanup() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	now := time.Now()
-	for key, entry := range c.data {
+	// Pre-allocate with reasonable capacity to reduce allocations
+	keysToDelete := make([]K, 0, 16)
+	
+	c.data.Range(func(key K, entry *CacheEntry[V]) bool {
 		if now.After(entry.ExpiresAt) {
-			delete(c.data, key)
+			keysToDelete = append(keysToDelete, key)
 		}
+		return true
+	})
+	
+	// Delete all expired keys in a batch
+	for _, key := range keysToDelete {
+		c.data.Delete(key)
 	}
 }
 
