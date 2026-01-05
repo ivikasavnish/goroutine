@@ -67,6 +67,10 @@ A powerful Go library providing advanced concurrent processing utilities, includ
 - Worker lifecycle management (start, stop)
 - Thread-safe task submission
 - Configurable worker count
+- **Resque Mode**: Retry with exponential backoff, dead letter queue, result storage
+- **Celery Mode**: Named queues, task priorities, task routing, acknowledgment
+- Task lifecycle hooks (onStart, onComplete, onFailed)
+- Task expiration and timeout support
 
 ## Installation
 
@@ -550,6 +554,123 @@ func main() {
 }
 ```
 
+### Worker Pool with Resque/Celery Mode
+
+Resque mode with retry and dead letter queue:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+    "github.com/ivikasavnish/goroutine"
+)
+
+func main() {
+    // Configure worker pool with Resque mode features
+    config := goroutine.DefaultWorkerPoolConfig()
+    config.NumWorkers = 5
+    config.EnableResults = true
+    config.MaxDeadLetter = 1000
+    
+    // Add lifecycle hooks
+    config.OnTaskFailed = func(task *goroutine.WorkerTask, err error) {
+        fmt.Printf("Task %s failed: %v\n", task.ID, err)
+    }
+    
+    pool := goroutine.NewWorkerPoolWithConfig(config)
+    pool.Start()
+    defer pool.Stop()
+    
+    // Submit task with retry policy (Resque mode)
+    task := &goroutine.WorkerTask{
+        ID: "flaky-api-call",
+        Func: func(ctx context.Context) error {
+            // Simulate flaky API
+            return callExternalAPI()
+        },
+        RetryPolicy: &goroutine.RetryPolicy{
+            MaxRetries:    3,
+            RetryDelay:    time.Second,
+            BackoffFactor: 2.0,        // Exponential backoff
+            MaxRetryDelay: 30 * time.Second,
+        },
+        Priority: goroutine.PriorityHigh,
+        Timeout:  10 * time.Second,
+    }
+    
+    pool.Submit(task)
+    
+    // Check result
+    time.Sleep(5 * time.Second)
+    result, _ := pool.GetResult("flaky-api-call")
+    fmt.Printf("Status: %s, Attempts: %d\n", result.Status, result.Attempts)
+    
+    // Check dead letter queue for failed tasks
+    deadTasks := pool.GetDeadLetterTasks()
+    for _, task := range deadTasks {
+        fmt.Printf("Failed task: %s\n", task.ID)
+        // Optionally requeue after fixing issue
+        pool.RequeueDeadLetter(task.ID)
+    }
+}
+```
+
+Celery mode with named queues:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+    "github.com/ivikasavnish/goroutine"
+)
+
+func main() {
+    // Configure worker pool with Celery mode features
+    config := goroutine.DefaultWorkerPoolConfig()
+    config.NumWorkers = 10
+    config.EnableQueues = true   // Enable named queues
+    config.EnableResults = true
+    
+    pool := goroutine.NewWorkerPoolWithConfig(config)
+    pool.Start()
+    defer pool.Stop()
+    
+    // Submit to high priority queue
+    criticalTask := &goroutine.WorkerTask{
+        ID:       "urgent-notification",
+        Priority: goroutine.PriorityCritical,
+        Func: func(ctx context.Context) error {
+            return sendNotification()
+        },
+    }
+    pool.SubmitToQueue("notifications", criticalTask)
+    
+    // Submit to normal priority queue
+    reportTask := &goroutine.WorkerTask{
+        ID:       "generate-report",
+        Priority: goroutine.PriorityNormal,
+        Func: func(ctx context.Context) error {
+            return generateReport()
+        },
+        Timeout: 5 * time.Minute,
+    }
+    pool.SubmitToQueue("reports", reportTask)
+    
+    // Check queue length
+    length := pool.GetQueueLength("notifications")
+    fmt.Printf("Notifications queue: %d pending\n", length)
+    
+    // Acknowledge task completion (Celery mode)
+    pool.AckTask("urgent-notification")
+}
+```
+
 ## API Reference
 
 ### Async Resolve
@@ -819,14 +940,83 @@ Returns whether the worker pool is currently running.
 #### `(*WorkerPool) WorkerCount() int`
 Returns the number of workers in the pool.
 
+#### `NewWorkerPoolWithConfig(config *WorkerPoolConfig) *WorkerPool`
+Creates a worker pool with custom configuration for Resque/Celery modes.
+
+#### `DefaultWorkerPoolConfig() *WorkerPoolConfig`
+Returns default worker pool configuration.
+
+#### `(*WorkerPool) SubmitToQueue(queueName string, task *WorkerTask) error`
+Submits a task to a named queue (Celery mode). Creates queue if it doesn't exist.
+
+#### `(*WorkerPool) GetResult(taskID string) (*TaskResult, bool)`
+Retrieves the result of a completed task. Returns the result and true if found.
+
+#### `(*WorkerPool) GetDeadLetterTasks() []*WorkerTask`
+Returns all tasks that failed after exhausting retries (Resque mode).
+
+#### `(*WorkerPool) RequeueDeadLetter(taskID string) error`
+Requeues a task from the dead letter queue (Resque mode).
+
+#### `(*WorkerPool) AckTask(taskID string)`
+Acknowledges task completion (Celery mode).
+
+#### `(*WorkerPool) RejectTask(taskID string, requeue bool) error`
+Rejects a task and optionally requeues it (Celery mode).
+
+#### `(*WorkerPool) GetQueueLength(queueName string) int`
+Returns the number of pending tasks in a queue (Celery mode).
+
 #### `NewCronSchedule(expr string) (*CronSchedule, error)`
 Creates a new cron schedule from an expression. Returns error if expression is invalid.
 
 #### `WorkerTask` Structure
 ```go
 type WorkerTask struct {
-    ID   string                                // Unique task identifier
-    Func func(ctx context.Context) error      // Task function to execute
+    ID          string                             // Unique task identifier
+    Func        func(ctx context.Context) error   // Task function to execute
+    Priority    TaskPriority                       // Task priority (Low, Normal, High, Critical)
+    Queue       string                             // Queue name (Celery mode)
+    RetryPolicy *RetryPolicy                       // Retry configuration (Resque mode)
+    Timeout     time.Duration                      // Task execution timeout
+    ExpiresAt   *time.Time                         // Task expiration time
+    Args        map[string]interface{}             // Task arguments metadata
+}
+```
+
+#### `RetryPolicy` Structure
+```go
+type RetryPolicy struct {
+    MaxRetries    int           // Maximum number of retry attempts
+    RetryDelay    time.Duration // Initial delay between retries
+    BackoffFactor float64       // Exponential backoff multiplier
+    MaxRetryDelay time.Duration // Maximum delay between retries
+}
+```
+
+#### `TaskResult` Structure
+```go
+type TaskResult struct {
+    TaskID    string      // Task identifier
+    Status    TaskStatus  // Task status (pending, running, success, failed, retrying, expired)
+    Result    interface{} // Task result (if any)
+    Error     error       // Task error (if failed)
+    StartTime time.Time   // Task start time
+    EndTime   time.Time   // Task end time
+    Attempts  int         // Number of execution attempts
+}
+```
+
+#### `WorkerPoolConfig` Structure
+```go
+type WorkerPoolConfig struct {
+    NumWorkers      int    // Number of worker goroutines
+    MaxDeadLetter   int    // Maximum dead letter queue size
+    EnableQueues    bool   // Enable named queues (Celery mode)
+    EnableResults   bool   // Enable result storage
+    OnTaskStart     func(task *WorkerTask)
+    OnTaskComplete  func(task *WorkerTask, result *TaskResult)
+    OnTaskFailed    func(task *WorkerTask, err error)
 }
 ```
 
@@ -840,7 +1030,7 @@ Comprehensive examples are available in the `example/` directory:
 - **[Recasting Examples](example/recasting_demo/)** - Type conversion utilities
 - **[Cache & Preflight Examples](example/cache_preflight_demo/)** - 6 examples showing cache-first patterns with automatic key generation
 - **[Concurrency Patterns Examples](example/concurrency_patterns/)** - 9 examples demonstrating pipeline, fan-out/fan-in, rate limiting, semaphore, generator, and smart wrapper patterns
-- **[Worker Pool Examples](example/worker_demo/)** - 4 examples demonstrating immediate tasks, delayed tasks, cron jobs, and mixed task types
+- **[Worker Pool Examples](example/worker_demo/)** - Immediate tasks, delayed tasks, cron jobs, Resque mode (retry/dead letter), and Celery mode (named queues/priorities)
 
 ## Performance Characteristics
 
@@ -951,6 +1141,11 @@ Comprehensive examples are available in the `example/` directory:
 - Task scheduling systems
 - Delayed message processing
 - Recurring report generation
+- **Resque-style**: Task retry with exponential backoff, dead letter queue management
+- **Celery-style**: Named queue routing, task priorities, distributed task execution
+- Job queues with priority levels
+- Fault-tolerant task processing
+- Task result tracking and retrieval
 
 ### ❌ Not Ideal For
 
