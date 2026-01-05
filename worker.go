@@ -3,6 +3,7 @@ package goroutine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -16,6 +17,34 @@ const (
 
 // TaskFunc represents a function to be executed by workers
 type TaskFunc func(ctx context.Context) error
+
+// TaskHandler is a registered function that can be retrieved by name
+type TaskHandler func(ctx context.Context, args map[string]interface{}) error
+
+// taskRegistry stores registered task handlers by name
+var (
+	taskRegistry   = make(map[string]TaskHandler)
+	taskRegistryMu sync.RWMutex
+)
+
+// RegisterTaskHandler registers a task handler with a name for broker serialization
+func RegisterTaskHandler(name string, handler TaskHandler) {
+	taskRegistryMu.Lock()
+	defer taskRegistryMu.Unlock()
+	taskRegistry[name] = handler
+}
+
+// GetTaskHandler retrieves a registered task handler by name
+func GetTaskHandler(name string) (TaskHandler, error) {
+	taskRegistryMu.RLock()
+	defer taskRegistryMu.RUnlock()
+	
+	handler, exists := taskRegistry[name]
+	if !exists {
+		return nil, fmt.Errorf("task handler '%s' not registered", name)
+	}
+	return handler, nil
+}
 
 // TaskPriority defines task priority levels
 type TaskPriority int
@@ -86,22 +115,167 @@ type WorkerTask struct {
 	ExpiresAt   *time.Time
 	Args        map[string]interface{}
 	
+	// Broker serialization fields
+	HandlerName string  // Name of registered handler for broker storage
+	
 	// Internal tracking
 	attempts    int
 	status      TaskStatus
 	startTime   time.Time
 }
 
+// BrokerJobData represents the job data structure for broker storage (Resque/Celery compatible)
+type BrokerJobData struct {
+	ID          string                 `json:"id"`
+	HandlerName string                 `json:"handler_name"`
+	Queue       string                 `json:"queue"`
+	Priority    TaskPriority           `json:"priority"`
+	Args        map[string]interface{} `json:"args"`
+	RetryPolicy *RetryPolicy           `json:"retry_policy,omitempty"`
+	Timeout     int64                  `json:"timeout,omitempty"`      // Milliseconds
+	Delay       int64                  `json:"delay,omitempty"`        // Milliseconds
+	ExpiresAt   *time.Time             `json:"expires_at,omitempty"`
+	CronExpr    string                 `json:"cron_expr,omitempty"`
+	IsRecurring bool                   `json:"is_recurring,omitempty"`
+	CreatedAt   time.Time              `json:"created_at"`
+	
+	// Resque compatibility
+	Class string `json:"class,omitempty"` // For Resque: task class name
+	
+	// Celery compatibility
+	Task    string   `json:"task,omitempty"`    // For Celery: task name
+	Kwargs  map[string]interface{} `json:"kwargs,omitempty"` // For Celery: keyword arguments
+	ETA     *time.Time `json:"eta,omitempty"`   // For Celery: estimated time of arrival
+	Expires *time.Time `json:"expires,omitempty"` // For Celery: expiration time
+}
+
+// EncodeToBroker encodes the task to broker-compatible JSON format
+func (wt *WorkerTask) EncodeToBroker() ([]byte, error) {
+	if wt.HandlerName == "" {
+		return nil, errors.New("HandlerName must be set for broker encoding")
+	}
+	
+	data := BrokerJobData{
+		ID:          wt.ID,
+		HandlerName: wt.HandlerName,
+		Queue:       wt.Queue,
+		Priority:    wt.Priority,
+		Args:        wt.Args,
+		RetryPolicy: wt.RetryPolicy,
+		CronExpr:    wt.CronExpr,
+		IsRecurring: wt.IsRecurring,
+		CreatedAt:   time.Now(),
+		
+		// Resque compatibility
+		Class: wt.HandlerName,
+		
+		// Celery compatibility
+		Task:   wt.HandlerName,
+		Kwargs: wt.Args,
+	}
+	
+	if wt.Timeout > 0 {
+		data.Timeout = wt.Timeout.Milliseconds()
+	}
+	
+	if wt.Delay > 0 {
+		data.Delay = wt.Delay.Milliseconds()
+		eta := time.Now().Add(wt.Delay)
+		data.ETA = &eta
+	}
+	
+	if wt.ExpiresAt != nil {
+		data.ExpiresAt = wt.ExpiresAt
+		data.Expires = wt.ExpiresAt
+	}
+	
+	return json.Marshal(data)
+}
+
+// DecodeFromBroker decodes a task from broker JSON format
+func DecodeFromBroker(data []byte) (*WorkerTask, error) {
+	var jobData BrokerJobData
+	if err := json.Unmarshal(data, &jobData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal job data: %w", err)
+	}
+	
+	// Try to get HandlerName from multiple fields (Resque/Celery compatibility)
+	handlerName := jobData.HandlerName
+	if handlerName == "" {
+		handlerName = jobData.Class // Resque
+	}
+	if handlerName == "" {
+		handlerName = jobData.Task // Celery
+	}
+	
+	if handlerName == "" {
+		return nil, errors.New("no handler name found in job data")
+	}
+	
+	// Get the registered handler
+	handler, err := GetTaskHandler(handlerName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task handler: %w", err)
+	}
+	
+	// Merge args from both fields (Celery compatibility)
+	args := jobData.Args
+	if args == nil {
+		args = jobData.Kwargs
+	}
+	
+	// Create task with the handler
+	task := &WorkerTask{
+		ID:          jobData.ID,
+		HandlerName: handlerName,
+		Queue:       jobData.Queue,
+		Priority:    jobData.Priority,
+		Args:        args,
+		RetryPolicy: jobData.RetryPolicy,
+		CronExpr:    jobData.CronExpr,
+		IsRecurring: jobData.IsRecurring,
+		Func: func(ctx context.Context) error {
+			return handler(ctx, args)
+		},
+	}
+	
+	if jobData.Timeout > 0 {
+		task.Timeout = time.Duration(jobData.Timeout) * time.Millisecond
+	}
+	
+	if jobData.Delay > 0 {
+		task.Delay = time.Duration(jobData.Delay) * time.Millisecond
+	}
+	
+	// Use Celery ETA if available and no explicit delay
+	if task.Delay == 0 && jobData.ETA != nil {
+		task.Delay = time.Until(*jobData.ETA)
+		if task.Delay < 0 {
+			task.Delay = 0
+		}
+	}
+	
+	// Use both ExpiresAt and Expires (Celery compatibility)
+	if jobData.ExpiresAt != nil {
+		task.ExpiresAt = jobData.ExpiresAt
+	} else if jobData.Expires != nil {
+		task.ExpiresAt = jobData.Expires
+	}
+	
+	return task, nil
+}
+
 // MarshalJSON serializes task metadata (Celery compatibility)
 func (wt *WorkerTask) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
-		"id":        wt.ID,
-		"queue":     wt.Queue,
-		"priority":  wt.Priority,
-		"status":    wt.status,
-		"args":      wt.Args,
-		"attempts":  wt.attempts,
-		"expiresAt": wt.ExpiresAt,
+		"id":           wt.ID,
+		"handler_name": wt.HandlerName,
+		"queue":        wt.Queue,
+		"priority":     wt.Priority,
+		"status":       wt.status,
+		"args":         wt.Args,
+		"attempts":     wt.attempts,
+		"expiresAt":    wt.ExpiresAt,
 	})
 }
 

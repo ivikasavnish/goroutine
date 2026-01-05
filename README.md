@@ -69,6 +69,9 @@ A powerful Go library providing advanced concurrent processing utilities, includ
 - Configurable worker count
 - **Resque Mode**: Retry with exponential backoff, dead letter queue, result storage
 - **Celery Mode**: Named queues, task priorities, task routing, acknowledgment
+- **Broker Encoding/Decoding**: Serialize tasks to/from JSON for Redis, RabbitMQ, etc.
+- Task handler registry for broker-based task retrieval
+- Compatible with Resque and Celery broker formats
 - Task lifecycle hooks (onStart, onComplete, onFailed)
 - Task expiration and timeout support
 
@@ -671,6 +674,73 @@ func main() {
 }
 ```
 
+### Worker Pool with Broker Encoding/Decoding
+
+Serialize and deserialize tasks for message brokers (Redis, RabbitMQ, etc.):
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "github.com/ivikasavnish/goroutine"
+)
+
+func main() {
+    // Register task handlers by name
+    goroutine.RegisterTaskHandler("send-email", func(ctx context.Context, args map[string]interface{}) error {
+        recipient := args["recipient"].(string)
+        fmt.Printf("Sending email to: %s\n", recipient)
+        return nil
+    })
+    
+    // Create task with handler name
+    task := &goroutine.WorkerTask{
+        ID:          "email-001",
+        HandlerName: "send-email",  // Handler name for registry
+        Queue:       "notifications",
+        Priority:    goroutine.PriorityHigh,
+        Args: map[string]interface{}{
+            "recipient": "user@example.com",
+            "subject":   "Welcome!",
+        },
+        RetryPolicy: goroutine.DefaultRetryPolicy(),
+    }
+    
+    // Encode task to JSON for broker (Redis, RabbitMQ, etc.)
+    data, _ := task.EncodeToBroker()
+    fmt.Printf("Encoded: %s\n", string(data))
+    // Save to Redis: redis.Set("job:email-001", data)
+    
+    // Later: retrieve from broker and decode
+    // data := redis.Get("job:email-001")
+    decodedTask, _ := goroutine.DecodeFromBroker(data)
+    
+    // Execute the task
+    decodedTask.Func(context.Background())
+}
+```
+
+Compatible with Resque format (uses `class`):
+```json
+{
+  "id": "task-123",
+  "class": "send-email",
+  "args": {"recipient": "user@example.com"}
+}
+```
+
+Compatible with Celery format (uses `task` and `kwargs`):
+```json
+{
+  "id": "task-456",
+  "task": "send-email",
+  "kwargs": {"recipient": "user@example.com"},
+  "eta": "2024-01-01T12:00:00Z"
+}
+```
+
 ## API Reference
 
 ### Async Resolve
@@ -967,6 +1037,18 @@ Rejects a task and optionally requeues it (Celery mode).
 #### `(*WorkerPool) GetQueueLength(queueName string) int`
 Returns the number of pending tasks in a queue (Celery mode).
 
+#### `RegisterTaskHandler(name string, handler TaskHandler)`
+Registers a task handler function by name for broker-based task retrieval. The handler can be retrieved later when decoding tasks from a broker.
+
+#### `GetTaskHandler(name string) (TaskHandler, error)`
+Retrieves a registered task handler by name. Returns error if handler not found.
+
+#### `(*WorkerTask) EncodeToBroker() ([]byte, error)`
+Encodes the task to JSON format compatible with message brokers (Redis, RabbitMQ, etc.). Returns JSON bytes that can be saved to a broker. The task must have `HandlerName` set. Output format is compatible with both Resque and Celery.
+
+#### `DecodeFromBroker(data []byte) (*WorkerTask, error)`
+Decodes a task from broker JSON format. Automatically detects and handles Resque format (using `class` field) and Celery format (using `task` and `kwargs` fields). Retrieves the registered handler and creates an executable task.
+
 #### `NewCronSchedule(expr string) (*CronSchedule, error)`
 Creates a new cron schedule from an expression. Returns error if expression is invalid.
 
@@ -975,6 +1057,7 @@ Creates a new cron schedule from an expression. Returns error if expression is i
 type WorkerTask struct {
     ID          string                             // Unique task identifier
     Func        func(ctx context.Context) error   // Task function to execute
+    HandlerName string                             // Handler name for broker encoding/decoding
     Priority    TaskPriority                       // Task priority (Low, Normal, High, Critical)
     Queue       string                             // Queue name (Celery mode)
     RetryPolicy *RetryPolicy                       // Retry configuration (Resque mode)
@@ -1020,6 +1103,40 @@ type WorkerPoolConfig struct {
 }
 ```
 
+#### `TaskHandler` Type
+```go
+type TaskHandler func(ctx context.Context, args map[string]interface{}) error
+```
+A function type for registered task handlers. Handlers receive a context and arguments map, making them suitable for broker-based task execution.
+
+#### `BrokerJobData` Structure
+```go
+type BrokerJobData struct {
+    ID          string                 `json:"id"`
+    HandlerName string                 `json:"handler_name"`
+    Queue       string                 `json:"queue"`
+    Priority    TaskPriority           `json:"priority"`
+    Args        map[string]interface{} `json:"args"`
+    RetryPolicy *RetryPolicy           `json:"retry_policy,omitempty"`
+    Timeout     int64                  `json:"timeout,omitempty"`      // Milliseconds
+    Delay       int64                  `json:"delay,omitempty"`        // Milliseconds
+    ExpiresAt   *time.Time             `json:"expires_at,omitempty"`
+    CronExpr    string                 `json:"cron_expr,omitempty"`
+    IsRecurring bool                   `json:"is_recurring,omitempty"`
+    CreatedAt   time.Time              `json:"created_at"`
+    
+    // Resque compatibility
+    Class string `json:"class,omitempty"` // For Resque: task class name
+    
+    // Celery compatibility
+    Task    string                  `json:"task,omitempty"`    // For Celery: task name
+    Kwargs  map[string]interface{}  `json:"kwargs,omitempty"`  // For Celery: keyword arguments
+    ETA     *time.Time              `json:"eta,omitempty"`     // For Celery: estimated time of arrival
+    Expires *time.Time              `json:"expires,omitempty"` // For Celery: expiration time
+}
+```
+Represents job data structure for broker storage, compatible with both Resque and Celery formats.
+
 ## Examples
 
 Comprehensive examples are available in the `example/` directory:
@@ -1030,6 +1147,8 @@ Comprehensive examples are available in the `example/` directory:
 - **[Recasting Examples](example/recasting_demo/)** - Type conversion utilities
 - **[Cache & Preflight Examples](example/cache_preflight_demo/)** - 6 examples showing cache-first patterns with automatic key generation
 - **[Concurrency Patterns Examples](example/concurrency_patterns/)** - 9 examples demonstrating pipeline, fan-out/fan-in, rate limiting, semaphore, generator, and smart wrapper patterns
+- **[Worker Pool Examples](example/worker_demo/)** - Immediate tasks, delayed tasks, cron jobs, Resque mode (retry/dead letter), and Celery mode (named queues/priorities)
+- **[Broker Encoding/Decoding Examples](example/worker_broker/)** - Task serialization for Redis/RabbitMQ, Resque and Celery format compatibility
 - **[Worker Pool Examples](example/worker_demo/)** - Immediate tasks, delayed tasks, cron jobs, Resque mode (retry/dead letter), and Celery mode (named queues/priorities)
 
 ## Performance Characteristics
