@@ -3,8 +3,14 @@ package goroutine
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
+)
+
+const (
+	// cronSchedulerInterval is the interval at which the cron scheduler checks for tasks
+	cronSchedulerInterval = 50 * time.Millisecond
 )
 
 // TaskFunc represents a function to be executed by workers
@@ -218,8 +224,8 @@ func (wp *WorkerPool) worker(id int) {
 			
 			// Execute the task
 			if err := task.Func(wp.ctx); err != nil {
-				// Task failed, but we continue processing
-				// In production, you might want to log this
+				// Log task execution error with task ID for debugging
+				log.Printf("Worker %d: Task %s failed: %v", id, task.ID, err)
 			}
 		}
 	}
@@ -259,7 +265,7 @@ func (wp *WorkerPool) delayedScheduler() {
 func (wp *WorkerPool) cronScheduler() {
 	defer wp.wg.Done()
 	
-	ticker := time.NewTicker(50 * time.Millisecond) // Check more frequently
+	ticker := time.NewTicker(cronSchedulerInterval)
 	defer ticker.Stop()
 	
 	for {

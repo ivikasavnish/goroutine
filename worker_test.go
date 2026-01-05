@@ -250,11 +250,12 @@ func TestWorkerPoolMultipleDelayed(t *testing.T) {
 	
 	for _, tt := range tasks {
 		wg.Add(1)
+		taskID := tt.id // Capture for closure
 		task := &WorkerTask{
-			ID: tt.id,
+			ID: taskID,
 			Func: func(ctx context.Context) error {
 				mu.Lock()
-				results[tt.id] = time.Now()
+				results[taskID] = time.Now()
 				mu.Unlock()
 				wg.Done()
 				return nil

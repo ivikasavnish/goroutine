@@ -10,7 +10,8 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Worker Pool Demo ===\n")
+	fmt.Println("=== Worker Pool Demo ===")
+	fmt.Println()
 
 	// Example 1: Basic worker pool with immediate tasks
 	fmt.Println("Example 1: Immediate Task Execution")
