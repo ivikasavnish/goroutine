@@ -22,6 +22,32 @@ const (
 	EnvDevelopment Environment = "dev"
 )
 
+// RolloutPolicy defines how a feature is rolled out
+type RolloutPolicy string
+
+const (
+	// RolloutAllAtOnce enables the feature for all users immediately
+	RolloutAllAtOnce RolloutPolicy = "all_at_once"
+	// RolloutGradual enables the feature gradually using percentage
+	RolloutGradual RolloutPolicy = "gradual"
+	// RolloutCanary enables the feature for specific user segments first
+	RolloutCanary RolloutPolicy = "canary"
+	// RolloutTargeted enables the feature for specific user IDs only
+	RolloutTargeted RolloutPolicy = "targeted"
+)
+
+// RolloutConfig contains rollout policy configuration
+type RolloutConfig struct {
+	// Policy is the rollout strategy to use
+	Policy RolloutPolicy `json:"policy"`
+	// Percentage is the percentage of users to enable (0-100) for gradual rollout
+	Percentage int `json:"percentage,omitempty"`
+	// TargetUserIDs is the list of specific user IDs for targeted rollout
+	TargetUserIDs []string `json:"target_user_ids,omitempty"`
+	// CanarySegments is the list of segments for canary rollout (e.g., "beta_users", "internal")
+	CanarySegments []string `json:"canary_segments,omitempty"`
+}
+
 // FeatureFlag represents a single feature flag with environment-specific settings
 type FeatureFlag struct {
 	// Name is the unique identifier for the feature flag
@@ -32,6 +58,8 @@ type FeatureFlag struct {
 	Enabled bool `json:"enabled"`
 	// Environments contains environment-specific overrides
 	Environments map[Environment]bool `json:"environments,omitempty"`
+	// Rollout contains rollout policy configuration
+	Rollout *RolloutConfig `json:"rollout,omitempty"`
 	// CreatedAt is when the flag was created
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is when the flag was last updated
@@ -46,6 +74,94 @@ func (f *FeatureFlag) IsEnabledForEnv(env Environment) bool {
 	}
 	// Fall back to global enabled status
 	return f.Enabled
+}
+
+// IsEnabledForUser checks if the flag is enabled for a specific user with rollout policy
+func (f *FeatureFlag) IsEnabledForUser(env Environment, userID string, userSegments []string) bool {
+	// First check if flag is enabled for the environment
+	if !f.IsEnabledForEnv(env) {
+		return false
+	}
+
+	// If no rollout policy, return the environment setting
+	if f.Rollout == nil {
+		return true
+	}
+
+	// Apply rollout policy
+	switch f.Rollout.Policy {
+	case RolloutAllAtOnce:
+		return true
+
+	case RolloutGradual:
+		// Use consistent hashing for percentage-based rollout
+		return f.isUserInPercentage(userID, f.Rollout.Percentage)
+
+	case RolloutCanary:
+		// Check if user is in any of the canary segments
+		return f.isUserInSegments(userSegments, f.Rollout.CanarySegments)
+
+	case RolloutTargeted:
+		// Check if user ID is in the target list
+		return f.isUserTargeted(userID, f.Rollout.TargetUserIDs)
+
+	default:
+		return true
+	}
+}
+
+// isUserInPercentage checks if a user falls within the rollout percentage using consistent hashing
+func (f *FeatureFlag) isUserInPercentage(userID string, percentage int) bool {
+	if percentage <= 0 {
+		return false
+	}
+	if percentage >= 100 {
+		return true
+	}
+
+	// Simple hash function for consistent percentage-based rollout
+	hash := 0
+	key := f.Name + ":" + userID
+	for i := 0; i < len(key); i++ {
+		hash = (hash*31 + int(key[i])) % 100
+	}
+	if hash < 0 {
+		hash = -hash
+	}
+	return hash < percentage
+}
+
+// isUserInSegments checks if user has any of the target segments
+func (f *FeatureFlag) isUserInSegments(userSegments []string, targetSegments []string) bool {
+	if len(targetSegments) == 0 {
+		return false
+	}
+
+	segmentMap := make(map[string]bool)
+	for _, seg := range userSegments {
+		segmentMap[seg] = true
+	}
+
+	for _, target := range targetSegments {
+		if segmentMap[target] {
+			return true
+		}
+	}
+	return false
+}
+
+// isUserTargeted checks if user ID is in the target list
+func (f *FeatureFlag) isUserTargeted(userID string, targetUserIDs []string) bool {
+	if len(targetUserIDs) == 0 {
+		return false
+	}
+
+	for _, targetID := range targetUserIDs {
+		if userID == targetID {
+			return true
+		}
+	}
+	return false
 }
 
 // FeatureFlagSet manages a collection of feature flags with Redis backend
@@ -146,6 +262,26 @@ func (ffs *FeatureFlagSet) IsEnabledForEnv(ctx context.Context, flagName string,
 	return flag.IsEnabledForEnv(env), nil
 }
 
+// IsEnabledForUser checks if a feature flag is enabled for a specific user with rollout policy
+func (ffs *FeatureFlagSet) IsEnabledForUser(ctx context.Context, flagName string, userID string, userSegments []string) (bool, error) {
+	flag, err := ffs.GetFlag(ctx, flagName)
+	if err != nil {
+		// Return false for missing flags (safe default)
+		return false, nil
+	}
+	return flag.IsEnabledForUser(ffs.environment, userID, userSegments), nil
+}
+
+// IsEnabledForUserInEnv checks if a feature flag is enabled for a user in a specific environment
+func (ffs *FeatureFlagSet) IsEnabledForUserInEnv(ctx context.Context, flagName string, env Environment, userID string, userSegments []string) (bool, error) {
+	flag, err := ffs.GetFlag(ctx, flagName)
+	if err != nil {
+		// Return false for missing flags (safe default)
+		return false, nil
+	}
+	return flag.IsEnabledForUser(env, userID, userSegments), nil
+}
+
 // GetFlag retrieves a feature flag by name
 func (ffs *FeatureFlagSet) GetFlag(ctx context.Context, flagName string) (*FeatureFlag, error) {
 	// Check local cache first
@@ -242,6 +378,51 @@ func (ffs *FeatureFlagSet) SetFlagForEnv(ctx context.Context, name string, env E
 	flag.Environments[env] = enabled
 	flag.UpdatedAt = time.Now()
 	return ffs.SetFlag(ctx, flag)
+}
+
+// SetRolloutPolicy sets the rollout policy for a feature flag
+func (ffs *FeatureFlagSet) SetRolloutPolicy(ctx context.Context, name string, rollout *RolloutConfig) error {
+	flag, err := ffs.GetFlag(ctx, name)
+	if err != nil {
+		return err
+	}
+	flag.Rollout = rollout
+	flag.UpdatedAt = time.Now()
+	return ffs.SetFlag(ctx, flag)
+}
+
+// SetGradualRollout configures a gradual rollout with percentage
+func (ffs *FeatureFlagSet) SetGradualRollout(ctx context.Context, name string, percentage int) error {
+	if percentage < 0 || percentage > 100 {
+		return fmt.Errorf("percentage must be between 0 and 100")
+	}
+	return ffs.SetRolloutPolicy(ctx, name, &RolloutConfig{
+		Policy:     RolloutGradual,
+		Percentage: percentage,
+	})
+}
+
+// SetCanaryRollout configures a canary rollout with segments
+func (ffs *FeatureFlagSet) SetCanaryRollout(ctx context.Context, name string, segments []string) error {
+	return ffs.SetRolloutPolicy(ctx, name, &RolloutConfig{
+		Policy:         RolloutCanary,
+		CanarySegments: segments,
+	})
+}
+
+// SetTargetedRollout configures a targeted rollout with specific user IDs
+func (ffs *FeatureFlagSet) SetTargetedRollout(ctx context.Context, name string, userIDs []string) error {
+	return ffs.SetRolloutPolicy(ctx, name, &RolloutConfig{
+		Policy:        RolloutTargeted,
+		TargetUserIDs: userIDs,
+	})
+}
+
+// SetAllAtOnceRollout configures an all-at-once rollout
+func (ffs *FeatureFlagSet) SetAllAtOnceRollout(ctx context.Context, name string) error {
+	return ffs.SetRolloutPolicy(ctx, name, &RolloutConfig{
+		Policy: RolloutAllAtOnce,
+	})
 }
 
 // DeleteFlag removes a feature flag

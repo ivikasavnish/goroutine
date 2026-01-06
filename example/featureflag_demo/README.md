@@ -1,13 +1,14 @@
 # Feature Flag Demo
 
-This demo showcases the easy-to-use feature flag system with Redis backend and environment-specific configuration.
+This demo showcases the easy-to-use feature flag system with Redis backend, environment-specific configuration, and rollout policies.
 
 ## Features Demonstrated
 
 1. **Basic Feature Flags** - Simple on/off switches for features
 2. **Environment-Specific Flags** - Different flag values for prod/stage/dev
 3. **Feature Rollout Scenario** - Gradual rollout across environments
-4. **Flag Management** - Create, update, delete, and list flags
+4. **Rollout Policies** - Gradual, canary, targeted, and all-at-once deployments
+5. **Flag Management** - Create, update, delete, and list flags
 
 ## Prerequisites
 
@@ -78,8 +79,15 @@ The demo will show:
    - Dev → Staging → Production
    - Progressive feature enablement
 
-4. **List All Flags**
+4. **Rollout Policies**
+   - Gradual rollout with percentage-based deployment
+   - Canary rollout with user segment targeting
+   - Targeted rollout to specific users
+   - All-at-once rollout
+
+5. **List All Flags**
    - Viewing all flags with their settings
+   - Rollout policy configurations
    - Metadata including creation and update times
 
 ## Usage in Your Application
@@ -154,6 +162,26 @@ enabled, _ := ffs.IsEnabled(ctx, "my-feature")
 
 // For specific environment
 enabled, _ := ffs.IsEnabledForEnv(ctx, "my-feature", goroutine.EnvProduction)
+
+// For specific user with rollout policy
+userID := "user123"
+userSegments := []string{"beta", "premium"}
+enabled, _ := ffs.IsEnabledForUser(ctx, "my-feature", userID, userSegments)
+```
+
+### Rollout Policies
+```go
+// Gradual rollout - 50% of users
+ffs.SetGradualRollout(ctx, "my-feature", 50)
+
+// Canary rollout - specific segments
+ffs.SetCanaryRollout(ctx, "my-feature", []string{"beta", "internal"})
+
+// Targeted rollout - specific users
+ffs.SetTargetedRollout(ctx, "my-feature", []string{"alice", "bob"})
+
+// All-at-once rollout
+ffs.SetAllAtOnceRollout(ctx, "my-feature")
 ```
 
 ### Updating Flags

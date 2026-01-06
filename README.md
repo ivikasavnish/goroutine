@@ -70,6 +70,10 @@ A powerful Go library providing advanced concurrent processing utilities, includ
 ### 🚩 **Feature Flags (NEW)**
 - Easy-to-use feature flag management with Redis backend
 - Environment-aware flag evaluation (prod, stage, dev)
+- **Rollout policies**: Gradual, canary, targeted, and all-at-once deployments
+- **Percentage-based rollouts** with consistent hashing
+- **User segment targeting** for canary releases
+- **Targeted rollouts** for specific user IDs
 - Global and environment-specific overrides
 - Local caching for fast reads
 - Safe defaults (non-existent flags default to disabled)
@@ -575,7 +579,7 @@ func main() {
 
 ### Feature Flags
 
-Easy-to-use feature flags with Redis backend and environment support:
+Easy-to-use feature flags with Redis backend, environment support, and rollout policies:
 
 ```go
 package main
@@ -613,10 +617,33 @@ func main() {
         fmt.Println("Using old checkout flow")
         oldCheckout()
     }
+    
+    // Rollout Policies - Gradual rollout to 50% of users
+    ffs.CreateFlag(ctx, "ai-recommendations", true, "AI-powered recommendations")
+    ffs.SetGradualRollout(ctx, "ai-recommendations", 50)
+    
+    // Check for specific user with rollout policy
+    userID := "user123"
+    enabled, _ = ffs.IsEnabledForUser(ctx, "ai-recommendations", userID, nil)
+    if enabled {
+        showAIRecommendations(userID)
+    }
+    
+    // Canary rollout to beta users
+    ffs.CreateFlag(ctx, "new-dashboard", true, "New dashboard UI")
+    ffs.SetCanaryRollout(ctx, "new-dashboard", []string{"beta", "internal"})
+    
+    userSegments := []string{"beta", "premium"}
+    enabled, _ = ffs.IsEnabledForUser(ctx, "new-dashboard", userID, userSegments)
+    
+    // Targeted rollout to specific users
+    ffs.CreateFlag(ctx, "experimental-feature", true, "Experimental feature")
+    ffs.SetTargetedRollout(ctx, "experimental-feature", []string{"alice", "bob", "charlie"})
 }
 
 func newCheckout() { /* new implementation */ }
 func oldCheckout() { /* old implementation */ }
+func showAIRecommendations(userID string) { /* show AI recommendations */ }
 ```
 
 ## API Reference
@@ -937,6 +964,29 @@ Removes a feature flag.
 #### `(*FeatureFlagSet) ListFlags(ctx context.Context) ([]*FeatureFlag, error)`
 Returns all feature flags.
 
+#### `(*FeatureFlagSet) IsEnabledForUser(ctx context.Context, flagName string, userID string, userSegments []string) (bool, error)`
+Checks if a feature flag is enabled for a specific user, applying rollout policies.
+
+#### `(*FeatureFlagSet) IsEnabledForUserInEnv(ctx context.Context, flagName string, env Environment, userID string, userSegments []string) (bool, error)`
+Checks if a feature flag is enabled for a user in a specific environment with rollout policies.
+
+#### Rollout Policy Methods
+
+#### `(*FeatureFlagSet) SetRolloutPolicy(ctx context.Context, name string, rollout *RolloutConfig) error`
+Sets a custom rollout policy for a feature flag.
+
+#### `(*FeatureFlagSet) SetGradualRollout(ctx context.Context, name string, percentage int) error`
+Configures a gradual rollout with percentage (0-100). Uses consistent hashing for stable user assignment.
+
+#### `(*FeatureFlagSet) SetCanaryRollout(ctx context.Context, name string, segments []string) error`
+Configures a canary rollout for specific user segments (e.g., "beta", "internal").
+
+#### `(*FeatureFlagSet) SetTargetedRollout(ctx context.Context, name string, userIDs []string) error`
+Configures a targeted rollout for specific user IDs.
+
+#### `(*FeatureFlagSet) SetAllAtOnceRollout(ctx context.Context, name string) error`
+Configures an all-at-once rollout (all users enabled immediately).
+
 #### `(*FeatureFlagSet) ClearCache()`
 Clears the local cache.
 
@@ -949,6 +999,13 @@ Closes the Redis connection.
 - `EnvStaging` - Staging environment ("stage")
 - `EnvDevelopment` - Development environment ("dev")
 
+#### Rollout Policy Constants
+
+- `RolloutAllAtOnce` - Enable for all users immediately
+- `RolloutGradual` - Enable for a percentage of users
+- `RolloutCanary` - Enable for specific user segments
+- `RolloutTargeted` - Enable for specific user IDs
+
 ## Examples
 
 Comprehensive examples are available in the `example/` directory:
@@ -960,7 +1017,7 @@ Comprehensive examples are available in the `example/` directory:
 - **[Recasting Examples](example/recasting_demo/)** - Type conversion utilities
 - **[Cache & Preflight Examples](example/cache_preflight_demo/)** - 6 examples showing cache-first patterns with automatic key generation
 - **[Concurrency Patterns Examples](example/concurrency_patterns/)** - 9 examples demonstrating pipeline, fan-out/fan-in, rate limiting, semaphore, generator, and smart wrapper patterns
-- **[Feature Flags Examples](example/featureflag_demo/)** - Complete demo showing feature flag management with Redis backend and environment-specific configuration
+- **[Feature Flags Examples](example/featureflag_demo/)** - Complete demo showing feature flag management with Redis backend, environment-specific configuration, and rollout policies (gradual, canary, targeted, all-at-once)
 
 ## Performance Characteristics
 
@@ -1005,6 +1062,8 @@ Comprehensive examples are available in the `example/` directory:
 - **Storage**: Redis with JSON serialization
 - **Memory overhead**: Minimal, cached flags only
 - **Environment overrides**: Zero overhead, resolved at check time
+- **Rollout policies**: Consistent hashing for gradual rollout, O(1) for canary/targeted checks
+- **User assignment**: Deterministic with consistent hashing, same user always gets same result
 
 ## Use Cases
 
@@ -1080,12 +1139,14 @@ Comprehensive examples are available in the `example/` directory:
 
 **Feature Flags:**
 - A/B testing and experimentation
-- Gradual feature rollouts (dev → stage → prod)
+- Gradual feature rollouts with percentage-based deployment
+- Canary deployments with user segment targeting
+- Targeted rollouts to specific users (VIPs, testers)
 - Emergency kill switches
-- Environment-specific features
+- Environment-specific features (dev → stage → prod)
 - Feature toggles for beta features
-- Canary deployments
-- User segment targeting
+- Progressive delivery strategies
+- Dark launches and traffic shadowing
 
 ### ❌ Not Ideal For
 

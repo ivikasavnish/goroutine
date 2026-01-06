@@ -2,6 +2,7 @@ package goroutine
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -315,4 +316,336 @@ func TestEnvironmentConstants(t *testing.T) {
 	if EnvDevelopment != "dev" {
 		t.Errorf("EnvDevelopment = %v, want %v", EnvDevelopment, "dev")
 	}
+}
+
+func TestRolloutPolicyConstants(t *testing.T) {
+	if RolloutAllAtOnce != "all_at_once" {
+		t.Errorf("RolloutAllAtOnce = %v, want %v", RolloutAllAtOnce, "all_at_once")
+	}
+	if RolloutGradual != "gradual" {
+		t.Errorf("RolloutGradual = %v, want %v", RolloutGradual, "gradual")
+	}
+	if RolloutCanary != "canary" {
+		t.Errorf("RolloutCanary = %v, want %v", RolloutCanary, "canary")
+	}
+	if RolloutTargeted != "targeted" {
+		t.Errorf("RolloutTargeted = %v, want %v", RolloutTargeted, "targeted")
+	}
+}
+
+func TestFeatureFlag_IsEnabledForUser_AllAtOnce(t *testing.T) {
+	flag := &FeatureFlag{
+		Name:    "test-flag",
+		Enabled: true,
+		Rollout: &RolloutConfig{
+			Policy: RolloutAllAtOnce,
+		},
+	}
+
+	// All users should be enabled
+	users := []string{"user1", "user2", "user3", "user4", "user5"}
+	for _, userID := range users {
+		if !flag.IsEnabledForUser(EnvProduction, userID, nil) {
+			t.Errorf("Expected flag to be enabled for user %s with all-at-once rollout", userID)
+		}
+	}
+}
+
+func TestFeatureFlag_IsEnabledForUser_Gradual(t *testing.T) {
+	tests := []struct {
+		name       string
+		percentage int
+		minEnabled int // Minimum number of enabled users out of 100
+		maxEnabled int // Maximum number of enabled users out of 100
+	}{
+		{"0 percent", 0, 0, 0},
+		{"25 percent", 25, 15, 35},
+		{"50 percent", 50, 40, 60},
+		{"75 percent", 75, 65, 85},
+		{"100 percent", 100, 100, 100},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			flag := &FeatureFlag{
+				Name:    "test-flag",
+				Enabled: true,
+				Rollout: &RolloutConfig{
+					Policy:     RolloutGradual,
+					Percentage: tt.percentage,
+				},
+			}
+
+			enabledCount := 0
+			for i := 0; i < 100; i++ {
+				userID := fmt.Sprintf("user%d", i)
+				if flag.IsEnabledForUser(EnvProduction, userID, nil) {
+					enabledCount++
+				}
+			}
+
+			if enabledCount < tt.minEnabled || enabledCount > tt.maxEnabled {
+				t.Errorf("Expected between %d and %d enabled users, got %d", tt.minEnabled, tt.maxEnabled, enabledCount)
+			}
+		})
+	}
+}
+
+func TestFeatureFlag_IsEnabledForUser_GradualConsistency(t *testing.T) {
+	flag := &FeatureFlag{
+		Name:    "test-flag",
+		Enabled: true,
+		Rollout: &RolloutConfig{
+			Policy:     RolloutGradual,
+			Percentage: 50,
+		},
+	}
+
+	// Test consistency - same user should always get same result
+	userID := "consistent-user"
+	firstResult := flag.IsEnabledForUser(EnvProduction, userID, nil)
+
+	for i := 0; i < 10; i++ {
+		result := flag.IsEnabledForUser(EnvProduction, userID, nil)
+		if result != firstResult {
+			t.Errorf("Inconsistent result for user %s on attempt %d", userID, i)
+		}
+	}
+}
+
+func TestFeatureFlag_IsEnabledForUser_Canary(t *testing.T) {
+	flag := &FeatureFlag{
+		Name:    "test-flag",
+		Enabled: true,
+		Rollout: &RolloutConfig{
+			Policy:         RolloutCanary,
+			CanarySegments: []string{"beta", "internal"},
+		},
+	}
+
+	tests := []struct {
+		name         string
+		userSegments []string
+		expected     bool
+	}{
+		{"User in beta segment", []string{"beta"}, true},
+		{"User in internal segment", []string{"internal"}, true},
+		{"User in both segments", []string{"beta", "internal"}, true},
+		{"User in beta and other", []string{"beta", "premium"}, true},
+		{"User not in any canary segment", []string{"premium"}, false},
+		{"User with no segments", []string{}, false},
+		{"User with nil segments", nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := flag.IsEnabledForUser(EnvProduction, "user123", tt.userSegments)
+			if result != tt.expected {
+				t.Errorf("Expected %v for segments %v, got %v", tt.expected, tt.userSegments, result)
+			}
+		})
+	}
+}
+
+func TestFeatureFlag_IsEnabledForUser_Targeted(t *testing.T) {
+	flag := &FeatureFlag{
+		Name:    "test-flag",
+		Enabled: true,
+		Rollout: &RolloutConfig{
+			Policy:        RolloutTargeted,
+			TargetUserIDs: []string{"user1", "user5", "user10"},
+		},
+	}
+
+	tests := []struct {
+		name     string
+		userID   string
+		expected bool
+	}{
+		{"Targeted user 1", "user1", true},
+		{"Targeted user 5", "user5", true},
+		{"Targeted user 10", "user10", true},
+		{"Non-targeted user 2", "user2", false},
+		{"Non-targeted user 100", "user100", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := flag.IsEnabledForUser(EnvProduction, tt.userID, nil)
+			if result != tt.expected {
+				t.Errorf("Expected %v for user %s, got %v", tt.expected, tt.userID, result)
+			}
+		})
+	}
+}
+
+func TestFeatureFlag_IsEnabledForUser_DisabledEnvironment(t *testing.T) {
+	flag := &FeatureFlag{
+		Name:    "test-flag",
+		Enabled: false, // Disabled globally
+		Rollout: &RolloutConfig{
+			Policy:     RolloutGradual,
+			Percentage: 100, // Even 100% rollout
+		},
+	}
+
+	// Should return false even with rollout policy
+	result := flag.IsEnabledForUser(EnvProduction, "user123", nil)
+	if result {
+		t.Errorf("Expected flag to be disabled when environment is disabled, regardless of rollout policy")
+	}
+}
+
+func TestFeatureFlag_IsEnabledForUser_NoRolloutPolicy(t *testing.T) {
+	flag := &FeatureFlag{
+		Name:    "test-flag",
+		Enabled: true,
+		Rollout: nil, // No rollout policy
+	}
+
+	// Should return true for all users when no rollout policy
+	users := []string{"user1", "user2", "user3"}
+	for _, userID := range users {
+		if !flag.IsEnabledForUser(EnvProduction, userID, nil) {
+			t.Errorf("Expected flag to be enabled for user %s with no rollout policy", userID)
+		}
+	}
+}
+
+func TestFeatureFlagSet_RolloutPolicies_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	config := &FeatureFlagSetConfig{
+		RedisAddr:   "localhost:6379",
+		KeyPrefix:   "test:rollout:",
+		CacheTTL:    5 * time.Second,
+		Environment: EnvProduction,
+	}
+
+	ffs, err := NewFeatureFlagSet(config)
+	if err != nil {
+		t.Skipf("Skipping test: Redis not available: %v", err)
+		return
+	}
+	defer ffs.Close()
+
+	// Clean up test flags
+	defer func() {
+		flags, _ := ffs.ListFlags(ctx)
+		for _, flag := range flags {
+			ffs.DeleteFlag(ctx, flag.Name)
+		}
+	}()
+
+	t.Run("GradualRollout", func(t *testing.T) {
+		flagName := "test-gradual-rollout"
+		err := ffs.CreateFlag(ctx, flagName, true, "Test gradual rollout")
+		if err != nil {
+			t.Fatalf("CreateFlag() error = %v", err)
+		}
+		defer ffs.DeleteFlag(ctx, flagName)
+
+		// Set 50% rollout
+		err = ffs.SetGradualRollout(ctx, flagName, 50)
+		if err != nil {
+			t.Fatalf("SetGradualRollout() error = %v", err)
+		}
+
+		// Check that some users are enabled and some are not
+		enabledCount := 0
+		for i := 0; i < 100; i++ {
+			userID := fmt.Sprintf("user%d", i)
+			enabled, _ := ffs.IsEnabledForUser(ctx, flagName, userID, nil)
+			if enabled {
+				enabledCount++
+			}
+		}
+
+		// Should be roughly 50%, allow 20-80 range
+		if enabledCount < 20 || enabledCount > 80 {
+			t.Errorf("Expected roughly 50%% enabled, got %d%%", enabledCount)
+		}
+	})
+
+	t.Run("CanaryRollout", func(t *testing.T) {
+		flagName := "test-canary-rollout"
+		err := ffs.CreateFlag(ctx, flagName, true, "Test canary rollout")
+		if err != nil {
+			t.Fatalf("CreateFlag() error = %v", err)
+		}
+		defer ffs.DeleteFlag(ctx, flagName)
+
+		// Set canary rollout
+		err = ffs.SetCanaryRollout(ctx, flagName, []string{"beta", "internal"})
+		if err != nil {
+			t.Fatalf("SetCanaryRollout() error = %v", err)
+		}
+
+		// Test with beta user
+		enabled, _ := ffs.IsEnabledForUser(ctx, flagName, "user1", []string{"beta"})
+		if !enabled {
+			t.Errorf("Expected flag to be enabled for beta user")
+		}
+
+		// Test with non-beta user
+		enabled, _ = ffs.IsEnabledForUser(ctx, flagName, "user2", []string{"premium"})
+		if enabled {
+			t.Errorf("Expected flag to be disabled for non-beta user")
+		}
+	})
+
+	t.Run("TargetedRollout", func(t *testing.T) {
+		flagName := "test-targeted-rollout"
+		err := ffs.CreateFlag(ctx, flagName, true, "Test targeted rollout")
+		if err != nil {
+			t.Fatalf("CreateFlag() error = %v", err)
+		}
+		defer ffs.DeleteFlag(ctx, flagName)
+
+		// Set targeted rollout
+		targetUsers := []string{"alice", "bob", "charlie"}
+		err = ffs.SetTargetedRollout(ctx, flagName, targetUsers)
+		if err != nil {
+			t.Fatalf("SetTargetedRollout() error = %v", err)
+		}
+
+		// Test with targeted user
+		enabled, _ := ffs.IsEnabledForUser(ctx, flagName, "alice", nil)
+		if !enabled {
+			t.Errorf("Expected flag to be enabled for targeted user alice")
+		}
+
+		// Test with non-targeted user
+		enabled, _ = ffs.IsEnabledForUser(ctx, flagName, "david", nil)
+		if enabled {
+			t.Errorf("Expected flag to be disabled for non-targeted user david")
+		}
+	})
+
+	t.Run("AllAtOnceRollout", func(t *testing.T) {
+		flagName := "test-all-at-once-rollout"
+		err := ffs.CreateFlag(ctx, flagName, true, "Test all-at-once rollout")
+		if err != nil {
+			t.Fatalf("CreateFlag() error = %v", err)
+		}
+		defer ffs.DeleteFlag(ctx, flagName)
+
+		// Set all-at-once rollout
+		err = ffs.SetAllAtOnceRollout(ctx, flagName)
+		if err != nil {
+			t.Fatalf("SetAllAtOnceRollout() error = %v", err)
+		}
+
+		// All users should be enabled
+		for i := 0; i < 10; i++ {
+			userID := fmt.Sprintf("user%d", i)
+			enabled, _ := ffs.IsEnabledForUser(ctx, flagName, userID, nil)
+			if !enabled {
+				t.Errorf("Expected flag to be enabled for all users with all-at-once rollout")
+			}
+		}
+	})
 }

@@ -72,8 +72,12 @@ func main() {
 	fmt.Println("\n--- Demo 3: Feature Rollout Scenario ---")
 	demoFeatureRollout(ctx, ffs, env)
 
-	// Demo 4: List all flags
-	fmt.Println("\n--- Demo 4: List All Flags ---")
+	// Demo 4: Rollout Policies
+	fmt.Println("\n--- Demo 4: Rollout Policies ---")
+	demoRolloutPolicies(ctx, ffs)
+
+	// Demo 5: List all flags
+	fmt.Println("\n--- Demo 5: List All Flags ---")
 	demoListFlags(ctx, ffs)
 
 	// Clean up demo flags
@@ -226,6 +230,133 @@ func demoFeatureRollout(ctx context.Context, ffs *goroutine.FeatureFlagSet, curr
 	}
 }
 
+func demoRolloutPolicies(ctx context.Context, ffs *goroutine.FeatureFlagSet) {
+	fmt.Println("Demonstrating different rollout strategies")
+	fmt.Println()
+
+	// Demo 1: Gradual Rollout
+	fmt.Println("1. Gradual Rollout (50%)")
+	flagName := "demo-gradual-feature"
+	err := ffs.CreateFlag(ctx, flagName, true, "Feature with gradual rollout")
+	if err != nil {
+		log.Printf("Error creating flag: %v\n", err)
+		return
+	}
+
+	// Set 50% gradual rollout
+	err = ffs.SetGradualRollout(ctx, flagName, 50)
+	if err != nil {
+		log.Printf("Error setting gradual rollout: %v\n", err)
+		return
+	}
+
+	fmt.Println("   Testing with 10 users:")
+	enabledCount := 0
+	for i := 1; i <= 10; i++ {
+		userID := fmt.Sprintf("user%d", i)
+		enabled, _ := ffs.IsEnabledForUser(ctx, flagName, userID, nil)
+		status := "✗"
+		if enabled {
+			status = "✓"
+			enabledCount++
+		}
+		fmt.Printf("   %s User %s: %v\n", status, userID, enabled)
+	}
+	fmt.Printf("   Result: %d/10 users enabled (~50%%)\n", enabledCount)
+
+	// Demo 2: Canary Rollout
+	fmt.Println("\n2. Canary Rollout (beta users only)")
+	flagName = "demo-canary-feature"
+	err = ffs.CreateFlag(ctx, flagName, true, "Feature with canary rollout")
+	if err != nil {
+		log.Printf("Error creating flag: %v\n", err)
+		return
+	}
+
+	// Set canary rollout for beta and internal users
+	err = ffs.SetCanaryRollout(ctx, flagName, []string{"beta", "internal"})
+	if err != nil {
+		log.Printf("Error setting canary rollout: %v\n", err)
+		return
+	}
+
+	fmt.Println("   Testing with different user segments:")
+	testUsers := []struct {
+		userID   string
+		segments []string
+	}{
+		{"alice", []string{"beta"}},
+		{"bob", []string{"internal"}},
+		{"charlie", []string{"premium"}},
+		{"david", []string{}},
+	}
+
+	for _, user := range testUsers {
+		enabled, _ := ffs.IsEnabledForUser(ctx, flagName, user.userID, user.segments)
+		status := "✗"
+		if enabled {
+			status = "✓"
+		}
+		fmt.Printf("   %s User %s (segments: %v): %v\n", status, user.userID, user.segments, enabled)
+	}
+
+	// Demo 3: Targeted Rollout
+	fmt.Println("\n3. Targeted Rollout (specific users)")
+	flagName = "demo-targeted-feature"
+	err = ffs.CreateFlag(ctx, flagName, true, "Feature with targeted rollout")
+	if err != nil {
+		log.Printf("Error creating flag: %v\n", err)
+		return
+	}
+
+	// Set targeted rollout for specific users
+	targetUsers := []string{"alice", "charlie", "eve"}
+	err = ffs.SetTargetedRollout(ctx, flagName, targetUsers)
+	if err != nil {
+		log.Printf("Error setting targeted rollout: %v\n", err)
+		return
+	}
+
+	fmt.Printf("   Target users: %v\n", targetUsers)
+	fmt.Println("   Testing with different users:")
+	allUsers := []string{"alice", "bob", "charlie", "david", "eve"}
+	for _, userID := range allUsers {
+		enabled, _ := ffs.IsEnabledForUser(ctx, flagName, userID, nil)
+		status := "✗"
+		if enabled {
+			status = "✓"
+		}
+		fmt.Printf("   %s User %s: %v\n", status, userID, enabled)
+	}
+
+	// Demo 4: All-at-Once Rollout
+	fmt.Println("\n4. All-at-Once Rollout (everyone)")
+	flagName = "demo-all-at-once-feature"
+	err = ffs.CreateFlag(ctx, flagName, true, "Feature with all-at-once rollout")
+	if err != nil {
+		log.Printf("Error creating flag: %v\n", err)
+		return
+	}
+
+	err = ffs.SetAllAtOnceRollout(ctx, flagName)
+	if err != nil {
+		log.Printf("Error setting all-at-once rollout: %v\n", err)
+		return
+	}
+
+	fmt.Println("   Testing with 5 users:")
+	for i := 1; i <= 5; i++ {
+		userID := fmt.Sprintf("user%d", i)
+		enabled, _ := ffs.IsEnabledForUser(ctx, flagName, userID, nil)
+		status := "✓"
+		if !enabled {
+			status = "✗"
+		}
+		fmt.Printf("   %s User %s: %v\n", status, userID, enabled)
+	}
+	fmt.Println("   Result: All users enabled")
+}
+
 func demoListFlags(ctx context.Context, ffs *goroutine.FeatureFlagSet) {
 	flags, err := ffs.ListFlags(ctx)
 	if err != nil {
@@ -242,6 +373,19 @@ func demoListFlags(ctx context.Context, ffs *goroutine.FeatureFlagSet) {
 			fmt.Println("   Environment Overrides:")
 			for env, enabled := range flag.Environments {
 				fmt.Printf("     - %s: %v\n", env, enabled)
+			}
+		}
+		if flag.Rollout != nil {
+			fmt.Println("   Rollout Policy:")
+			fmt.Printf("     - Strategy: %s\n", flag.Rollout.Policy)
+			if flag.Rollout.Percentage > 0 {
+				fmt.Printf("     - Percentage: %d%%\n", flag.Rollout.Percentage)
+			}
+			if len(flag.Rollout.CanarySegments) > 0 {
+				fmt.Printf("     - Canary Segments: %v\n", flag.Rollout.CanarySegments)
+			}
+			if len(flag.Rollout.TargetUserIDs) > 0 {
+				fmt.Printf("     - Target Users: %v\n", flag.Rollout.TargetUserIDs)
 			}
 		}
 		fmt.Printf("   Created: %s\n", flag.CreatedAt.Format(time.RFC3339))
