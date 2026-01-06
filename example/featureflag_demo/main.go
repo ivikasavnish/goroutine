@@ -55,7 +55,8 @@ func main() {
 	}
 	defer ffs.Close()
 
-	fmt.Println("✓ Connected to Redis successfully\n")
+	fmt.Println("✓ Connected to Redis successfully")
+	fmt.Println()
 
 	ctx := context.Background()
 
