@@ -101,7 +101,6 @@ func NewFeatureFlagSet(config *FeatureFlagSetConfig) (*FeatureFlagSet, error) {
 	// Test connection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
 	if err := client.Ping(ctx).Err(); err != nil {
 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
@@ -140,7 +139,8 @@ func (ffs *FeatureFlagSet) IsEnabled(ctx context.Context, flagName string) (bool
 func (ffs *FeatureFlagSet) IsEnabledForEnv(ctx context.Context, flagName string, env Environment) (bool, error) {
 	flag, err := ffs.GetFlag(ctx, flagName)
 	if err != nil {
-		// Flag doesn't exist - return false by default
+		// Check if it's a "not found" error - return false for missing flags (safe default)
+		// For other errors, we also return false but could log for debugging
 		return false, nil
 	}
 	return flag.IsEnabledForEnv(env), nil
