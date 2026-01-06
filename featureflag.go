@@ -120,14 +120,25 @@ func (f *FeatureFlag) isUserInPercentage(userID string, percentage int) bool {
 	}
 
 	// Simple hash function for consistent percentage-based rollout
+	// Build key string efficiently
+	keyLen := len(f.Name) + 1 + len(userID)
+	keyBytes := make([]byte, 0, keyLen)
+	keyBytes = append(keyBytes, f.Name...)
+	keyBytes = append(keyBytes, ':')
+	keyBytes = append(keyBytes, userID...)
+	
+	// Calculate hash
 	hash := 0
-	key := f.Name + ":" + userID
-	for i := 0; i < len(key); i++ {
-		hash = (hash*31 + int(key[i])) % 100
+	for i := 0; i < len(keyBytes); i++ {
+		hash = hash*31 + int(keyBytes[i])
 	}
+	
+	// Apply modulo once for better distribution
 	if hash < 0 {
 		hash = -hash
 	}
+	hash = hash % 100
+	
 	return hash < percentage
 }
 
@@ -394,7 +405,7 @@ func (ffs *FeatureFlagSet) SetRolloutPolicy(ctx context.Context, name string, ro
 // SetGradualRollout configures a gradual rollout with percentage
 func (ffs *FeatureFlagSet) SetGradualRollout(ctx context.Context, name string, percentage int) error {
 	if percentage < 0 || percentage > 100 {
-		return fmt.Errorf("percentage must be between 0 and 100")
+		return fmt.Errorf("percentage must be between 0 and 100, got %d", percentage)
 	}
 	return ffs.SetRolloutPolicy(ctx, name, &RolloutConfig{
 		Policy:     RolloutGradual,

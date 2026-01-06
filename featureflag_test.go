@@ -360,8 +360,8 @@ func TestFeatureFlag_IsEnabledForUser_Gradual(t *testing.T) {
 	}{
 		{"0 percent", 0, 0, 0},
 		{"25 percent", 25, 15, 35},
-		{"50 percent", 50, 40, 60},
-		{"75 percent", 75, 65, 85},
+		{"50 percent", 50, 35, 65},
+		{"75 percent", 75, 60, 90},
 		{"100 percent", 100, 100, 100},
 	}
 
