@@ -577,9 +577,184 @@ func main() {
 }
 ```
 
-### Feature Flags
+### Worker Pool with Task Scheduling
 
-Easy-to-use feature flags with Redis backend, environment support, and rollout policies:
+Execute immediate tasks, delayed tasks, and cron jobs:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+    "github.com/ivikasavnish/goroutine"
+)
+
+func main() {
+    // Create a worker pool with 5 workers
+    pool := goroutine.NewWorkerPool(5)
+    pool.Start()
+    defer pool.Stop()
+    
+    // Submit immediate task
+    task1 := &goroutine.WorkerTask{
+        ID: "urgent-task",
+        Func: func(ctx context.Context) error {
+            fmt.Println("Processing urgent request...")
+            return nil
+        },
+    }
+    pool.Submit(task1)
+    
+    // Submit delayed task (runs after 2 seconds)
+    task2 := &goroutine.WorkerTask{
+        ID: "email-task",
+        Func: func(ctx context.Context) error {
+            fmt.Println("Sending scheduled email...")
+            return nil
+        },
+    }
+    pool.SubmitDelayed(task2, 2*time.Second)
+    
+    // Submit cron job (runs every 30 seconds)
+    task3 := &goroutine.WorkerTask{
+        ID: "cleanup-job",
+        Func: func(ctx context.Context) error {
+            fmt.Println("Running cleanup...")
+            return nil
+        },
+    }
+    pool.SubmitCron(task3, "@every 30s")
+    
+    // Let tasks run
+    time.Sleep(5 * time.Second)
+    
+    // Cancel cron job
+    pool.CancelCron("cleanup-job")
+}
+```
+
+### Worker Pool with Resque/Celery Mode
+
+Resque mode with retry and dead letter queue:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+    "github.com/ivikasavnish/goroutine"
+)
+
+func main() {
+    // Configure worker pool with Resque mode features
+    config := goroutine.DefaultWorkerPoolConfig()
+    config.NumWorkers = 5
+    config.EnableResults = true
+    config.MaxDeadLetter = 1000
+    
+    // Add lifecycle hooks
+    config.OnTaskFailed = func(task *goroutine.WorkerTask, err error) {
+        fmt.Printf("Task %s failed: %v\n", task.ID, err)
+    }
+    
+    pool := goroutine.NewWorkerPoolWithConfig(config)
+    pool.Start()
+    defer pool.Stop()
+    
+    // Submit task with retry policy (Resque mode)
+    task := &goroutine.WorkerTask{
+        ID: "flaky-api-call",
+        Func: func(ctx context.Context) error {
+            // Simulate flaky API
+            return callExternalAPI()
+        },
+        RetryPolicy: &goroutine.RetryPolicy{
+            MaxRetries:    3,
+            RetryDelay:    time.Second,
+            BackoffFactor: 2.0,        // Exponential backoff
+            MaxRetryDelay: 30 * time.Second,
+        },
+        Priority: goroutine.PriorityHigh,
+        Timeout:  10 * time.Second,
+    }
+    
+    pool.Submit(task)
+    
+    // Check result
+    time.Sleep(5 * time.Second)
+    result, _ := pool.GetResult("flaky-api-call")
+    fmt.Printf("Status: %s, Attempts: %d\n", result.Status, result.Attempts)
+    
+    // Check dead letter queue for failed tasks
+    deadTasks := pool.GetDeadLetterTasks()
+    for _, task := range deadTasks {
+        fmt.Printf("Failed task: %s\n", task.ID)
+        // Optionally requeue after fixing issue
+        pool.RequeueDeadLetter(task.ID)
+    }
+}
+```
+
+Celery mode with named queues:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+    "github.com/ivikasavnish/goroutine"
+)
+
+func main() {
+    // Configure worker pool with Celery mode features
+    config := goroutine.DefaultWorkerPoolConfig()
+    config.NumWorkers = 10
+    config.EnableQueues = true   // Enable named queues
+    config.EnableResults = true
+    
+    pool := goroutine.NewWorkerPoolWithConfig(config)
+    pool.Start()
+    defer pool.Stop()
+    
+    // Submit to high priority queue
+    criticalTask := &goroutine.WorkerTask{
+        ID:       "urgent-notification",
+        Priority: goroutine.PriorityCritical,
+        Func: func(ctx context.Context) error {
+            return sendNotification()
+        },
+    }
+    pool.SubmitToQueue("notifications", criticalTask)
+    
+    // Submit to normal priority queue
+    reportTask := &goroutine.WorkerTask{
+        ID:       "generate-report",
+        Priority: goroutine.PriorityNormal,
+        Func: func(ctx context.Context) error {
+            return generateReport()
+        },
+        Timeout: 5 * time.Minute,
+    }
+    pool.SubmitToQueue("reports", reportTask)
+    
+    // Check queue length
+    length := pool.GetQueueLength("notifications")
+    fmt.Printf("Notifications queue: %d pending\n", length)
+    
+    // Acknowledge task completion (Celery mode)
+    pool.AckTask("urgent-notification")
+}
+```
+
+### Worker Pool with Broker Encoding/Decoding
+
+Serialize and deserialize tasks for message brokers (Redis, RabbitMQ, etc.):
 
 ```go
 package main
@@ -591,59 +766,57 @@ import (
 )
 
 func main() {
-    // Create feature flag set for production environment
-    ffs, err := goroutine.NewFeatureFlagSetSimple("localhost:6379", goroutine.EnvProduction)
-    if err != nil {
-        panic(err)
-    }
-    defer ffs.Close()
+    // Register task handlers by name
+    goroutine.RegisterTaskHandler("send-email", func(ctx context.Context, args map[string]interface{}) error {
+        recipient := args["recipient"].(string)
+        fmt.Printf("Sending email to: %s\n", recipient)
+        return nil
+    })
     
-    ctx := context.Background()
-    
-    // Create a new feature flag
-    ffs.CreateFlag(ctx, "new-checkout", true, "New checkout flow")
-    
-    // Set environment-specific overrides
-    ffs.SetFlagForEnv(ctx, "new-checkout", goroutine.EnvProduction, false) // Disabled in prod
-    ffs.SetFlagForEnv(ctx, "new-checkout", goroutine.EnvDevelopment, true) // Enabled in dev
-    
-    // Check if feature is enabled in current environment
-    enabled, _ := ffs.IsEnabled(ctx, "new-checkout")
-    
-    if enabled {
-        fmt.Println("Using new checkout flow")
-        newCheckout()
-    } else {
-        fmt.Println("Using old checkout flow")
-        oldCheckout()
+    // Create task with handler name
+    task := &goroutine.WorkerTask{
+        ID:          "email-001",
+        HandlerName: "send-email",  // Handler name for registry
+        Queue:       "notifications",
+        Priority:    goroutine.PriorityHigh,
+        Args: map[string]interface{}{
+            "recipient": "user@example.com",
+            "subject":   "Welcome!",
+        },
+        RetryPolicy: goroutine.DefaultRetryPolicy(),
     }
     
-    // Rollout Policies - Gradual rollout to 50% of users
-    ffs.CreateFlag(ctx, "ai-recommendations", true, "AI-powered recommendations")
-    ffs.SetGradualRollout(ctx, "ai-recommendations", 50)
+    // Encode task to JSON for broker (Redis, RabbitMQ, etc.)
+    data, _ := task.EncodeToBroker()
+    fmt.Printf("Encoded: %s\n", string(data))
+    // Save to Redis: redis.Set("job:email-001", data)
     
-    // Check for specific user with rollout policy
-    userID := "user123"
-    enabled, _ = ffs.IsEnabledForUser(ctx, "ai-recommendations", userID, nil)
-    if enabled {
-        showAIRecommendations(userID)
-    }
+    // Later: retrieve from broker and decode
+    // data := redis.Get("job:email-001")
+    decodedTask, _ := goroutine.DecodeFromBroker(data)
     
-    // Canary rollout to beta users
-    ffs.CreateFlag(ctx, "new-dashboard", true, "New dashboard UI")
-    ffs.SetCanaryRollout(ctx, "new-dashboard", []string{"beta", "internal"})
-    
-    userSegments := []string{"beta", "premium"}
-    enabled, _ = ffs.IsEnabledForUser(ctx, "new-dashboard", userID, userSegments)
-    
-    // Targeted rollout to specific users
-    ffs.CreateFlag(ctx, "experimental-feature", true, "Experimental feature")
-    ffs.SetTargetedRollout(ctx, "experimental-feature", []string{"alice", "bob", "charlie"})
+    // Execute the task
+    decodedTask.Func(context.Background())
 }
+```
 
-func newCheckout() { /* new implementation */ }
-func oldCheckout() { /* old implementation */ }
-func showAIRecommendations(userID string) { /* show AI recommendations */ }
+Compatible with Resque format (uses `class`):
+```json
+{
+  "id": "task-123",
+  "class": "send-email",
+  "args": {"recipient": "user@example.com"}
+}
+```
+
+Compatible with Celery format (uses `task` and `kwargs`):
+```json
+{
+  "id": "task-456",
+  "task": "send-email",
+  "kwargs": {"recipient": "user@example.com"},
+  "eta": "2024-01-01T12:00:00Z"
+}
 ```
 
 ## API Reference
@@ -926,85 +1099,165 @@ Records a successful operation.
 #### `(*CircuitBreaker) RecordFailure()`
 Records a failed operation.
 
-### Feature Flags
+### Worker Pool
 
-#### `NewFeatureFlagSet(config *FeatureFlagSetConfig) (*FeatureFlagSet, error)`
-Creates a new feature flag set with full configuration options.
+#### `NewWorkerPool(numWorkers int) *WorkerPool`
+Creates a new worker pool with the specified number of workers. If numWorkers <= 0, defaults to 1.
 
-#### `NewFeatureFlagSetSimple(redisAddr string, env Environment) (*FeatureFlagSet, error)`
-Creates a feature flag set with simple parameters (Redis address and environment).
+#### `(*WorkerPool) Start()`
+Starts the worker pool and begins processing tasks. Must be called before submitting tasks.
 
-#### `DefaultFeatureFlagSetConfig() *FeatureFlagSetConfig`
-Returns default configuration for feature flag set.
+#### `(*WorkerPool) Stop()`
+Stops the worker pool and waits for all workers to finish. Safely handles multiple calls.
 
-#### `(*FeatureFlagSet) IsEnabled(ctx context.Context, flagName string) (bool, error)`
-Checks if a feature flag is enabled for the current environment.
+#### `(*WorkerPool) Submit(task *WorkerTask) error`
+Submits a task for immediate execution. Returns error if pool is not running.
 
-#### `(*FeatureFlagSet) IsEnabledForEnv(ctx context.Context, flagName string, env Environment) (bool, error)`
-Checks if a feature flag is enabled for a specific environment.
+#### `(*WorkerPool) SubmitDelayed(task *WorkerTask, delay time.Duration) error`
+Submits a task for delayed execution. Task will execute after the specified delay.
 
-#### `(*FeatureFlagSet) CreateFlag(ctx context.Context, name string, enabled bool, description string) error`
-Creates a new feature flag with default settings.
+#### `(*WorkerPool) SubmitCron(task *WorkerTask, cronExpr string) error`
+Submits a recurring task with a cron schedule. Supported expressions:
+- `@hourly` - Run every hour
+- `@daily` - Run every day at midnight
+- `@weekly` - Run every week
+- `@every 5s` - Run every 5 seconds (supports s, m, h units)
 
-#### `(*FeatureFlagSet) UpdateFlag(ctx context.Context, name string, enabled bool) error`
-Updates an existing feature flag's global enabled status.
+#### `(*WorkerPool) CancelCron(taskID string)`
+Cancels a recurring cron task by its ID.
 
-#### `(*FeatureFlagSet) SetFlagForEnv(ctx context.Context, name string, env Environment, enabled bool) error`
-Sets the enabled status for a specific environment.
+#### `(*WorkerPool) IsRunning() bool`
+Returns whether the worker pool is currently running.
 
-#### `(*FeatureFlagSet) SetFlag(ctx context.Context, flag *FeatureFlag) error`
-Creates or updates a complete feature flag with all settings.
+#### `(*WorkerPool) WorkerCount() int`
+Returns the number of workers in the pool.
 
-#### `(*FeatureFlagSet) GetFlag(ctx context.Context, flagName string) (*FeatureFlag, error)`
-Retrieves a feature flag by name.
+#### `NewWorkerPoolWithConfig(config *WorkerPoolConfig) *WorkerPool`
+Creates a worker pool with custom configuration for Resque/Celery modes.
 
-#### `(*FeatureFlagSet) DeleteFlag(ctx context.Context, flagName string) error`
-Removes a feature flag.
+#### `DefaultWorkerPoolConfig() *WorkerPoolConfig`
+Returns default worker pool configuration.
 
-#### `(*FeatureFlagSet) ListFlags(ctx context.Context) ([]*FeatureFlag, error)`
-Returns all feature flags.
+#### `(*WorkerPool) SubmitToQueue(queueName string, task *WorkerTask) error`
+Submits a task to a named queue (Celery mode). Creates queue if it doesn't exist.
 
-#### `(*FeatureFlagSet) IsEnabledForUser(ctx context.Context, flagName string, userID string, userSegments []string) (bool, error)`
-Checks if a feature flag is enabled for a specific user, applying rollout policies.
+#### `(*WorkerPool) GetResult(taskID string) (*TaskResult, bool)`
+Retrieves the result of a completed task. Returns the result and true if found.
 
-#### `(*FeatureFlagSet) IsEnabledForUserInEnv(ctx context.Context, flagName string, env Environment, userID string, userSegments []string) (bool, error)`
-Checks if a feature flag is enabled for a user in a specific environment with rollout policies.
+#### `(*WorkerPool) GetDeadLetterTasks() []*WorkerTask`
+Returns all tasks that failed after exhausting retries (Resque mode).
 
-#### Rollout Policy Methods
+#### `(*WorkerPool) RequeueDeadLetter(taskID string) error`
+Requeues a task from the dead letter queue (Resque mode).
 
-#### `(*FeatureFlagSet) SetRolloutPolicy(ctx context.Context, name string, rollout *RolloutConfig) error`
-Sets a custom rollout policy for a feature flag.
+#### `(*WorkerPool) AckTask(taskID string)`
+Acknowledges task completion (Celery mode).
 
-#### `(*FeatureFlagSet) SetGradualRollout(ctx context.Context, name string, percentage int) error`
-Configures a gradual rollout with percentage (0-100). Uses consistent hashing for stable user assignment.
+#### `(*WorkerPool) RejectTask(taskID string, requeue bool) error`
+Rejects a task and optionally requeues it (Celery mode).
 
-#### `(*FeatureFlagSet) SetCanaryRollout(ctx context.Context, name string, segments []string) error`
-Configures a canary rollout for specific user segments (e.g., "beta", "internal").
+#### `(*WorkerPool) GetQueueLength(queueName string) int`
+Returns the number of pending tasks in a queue (Celery mode).
 
-#### `(*FeatureFlagSet) SetTargetedRollout(ctx context.Context, name string, userIDs []string) error`
-Configures a targeted rollout for specific user IDs.
+#### `RegisterTaskHandler(name string, handler TaskHandler)`
+Registers a task handler function by name for broker-based task retrieval. The handler can be retrieved later when decoding tasks from a broker.
 
-#### `(*FeatureFlagSet) SetAllAtOnceRollout(ctx context.Context, name string) error`
-Configures an all-at-once rollout (all users enabled immediately).
+#### `GetTaskHandler(name string) (TaskHandler, error)`
+Retrieves a registered task handler by name. Returns error if handler not found.
 
-#### `(*FeatureFlagSet) ClearCache()`
-Clears the local cache.
+#### `(*WorkerTask) EncodeToBroker() ([]byte, error)`
+Encodes the task to JSON format compatible with message brokers (Redis, RabbitMQ, etc.). Returns JSON bytes that can be saved to a broker. The task must have `HandlerName` set. Output format is compatible with both Resque and Celery.
 
-#### `(*FeatureFlagSet) Close() error`
-Closes the Redis connection.
+#### `DecodeFromBroker(data []byte) (*WorkerTask, error)`
+Decodes a task from broker JSON format. Automatically detects and handles Resque format (using `class` field) and Celery format (using `task` and `kwargs` fields). Retrieves the registered handler and creates an executable task.
 
-#### Environment Constants
+#### `NewCronSchedule(expr string) (*CronSchedule, error)`
+Creates a new cron schedule from an expression. Returns error if expression is invalid.
 
-- `EnvProduction` - Production environment ("prod")
-- `EnvStaging` - Staging environment ("stage")
-- `EnvDevelopment` - Development environment ("dev")
+#### `WorkerTask` Structure
+```go
+type WorkerTask struct {
+    ID          string                             // Unique task identifier
+    Func        func(ctx context.Context) error   // Task function to execute
+    HandlerName string                             // Handler name for broker encoding/decoding
+    Priority    TaskPriority                       // Task priority (Low, Normal, High, Critical)
+    Queue       string                             // Queue name (Celery mode)
+    RetryPolicy *RetryPolicy                       // Retry configuration (Resque mode)
+    Timeout     time.Duration                      // Task execution timeout
+    ExpiresAt   *time.Time                         // Task expiration time
+    Args        map[string]interface{}             // Task arguments metadata
+}
+```
 
-#### Rollout Policy Constants
+#### `RetryPolicy` Structure
+```go
+type RetryPolicy struct {
+    MaxRetries    int           // Maximum number of retry attempts
+    RetryDelay    time.Duration // Initial delay between retries
+    BackoffFactor float64       // Exponential backoff multiplier
+    MaxRetryDelay time.Duration // Maximum delay between retries
+}
+```
 
-- `RolloutAllAtOnce` - Enable for all users immediately
-- `RolloutGradual` - Enable for a percentage of users
-- `RolloutCanary` - Enable for specific user segments
-- `RolloutTargeted` - Enable for specific user IDs
+#### `TaskResult` Structure
+```go
+type TaskResult struct {
+    TaskID    string      // Task identifier
+    Status    TaskStatus  // Task status (pending, running, success, failed, retrying, expired)
+    Result    interface{} // Task result (if any)
+    Error     error       // Task error (if failed)
+    StartTime time.Time   // Task start time
+    EndTime   time.Time   // Task end time
+    Attempts  int         // Number of execution attempts
+}
+```
+
+#### `WorkerPoolConfig` Structure
+```go
+type WorkerPoolConfig struct {
+    NumWorkers      int    // Number of worker goroutines
+    MaxDeadLetter   int    // Maximum dead letter queue size
+    EnableQueues    bool   // Enable named queues (Celery mode)
+    EnableResults   bool   // Enable result storage
+    OnTaskStart     func(task *WorkerTask)
+    OnTaskComplete  func(task *WorkerTask, result *TaskResult)
+    OnTaskFailed    func(task *WorkerTask, err error)
+}
+```
+
+#### `TaskHandler` Type
+```go
+type TaskHandler func(ctx context.Context, args map[string]interface{}) error
+```
+A function type for registered task handlers. Handlers receive a context and arguments map, making them suitable for broker-based task execution.
+
+#### `BrokerJobData` Structure
+```go
+type BrokerJobData struct {
+    ID          string                 `json:"id"`
+    HandlerName string                 `json:"handler_name"`
+    Queue       string                 `json:"queue"`
+    Priority    TaskPriority           `json:"priority"`
+    Args        map[string]interface{} `json:"args"`
+    RetryPolicy *RetryPolicy           `json:"retry_policy,omitempty"`
+    Timeout     int64                  `json:"timeout,omitempty"`      // Milliseconds
+    Delay       int64                  `json:"delay,omitempty"`        // Milliseconds
+    ExpiresAt   *time.Time             `json:"expires_at,omitempty"`
+    CronExpr    string                 `json:"cron_expr,omitempty"`
+    IsRecurring bool                   `json:"is_recurring,omitempty"`
+    CreatedAt   time.Time              `json:"created_at"`
+    
+    // Resque compatibility
+    Class string `json:"class,omitempty"` // For Resque: task class name
+    
+    // Celery compatibility
+    Task    string                  `json:"task,omitempty"`    // For Celery: task name
+    Kwargs  map[string]interface{}  `json:"kwargs,omitempty"`  // For Celery: keyword arguments
+    ETA     *time.Time              `json:"eta,omitempty"`     // For Celery: estimated time of arrival
+    Expires *time.Time              `json:"expires,omitempty"` // For Celery: expiration time
+}
+```
+Represents job data structure for broker storage, compatible with both Resque and Celery formats.
 
 ## Examples
 
@@ -1017,7 +1270,9 @@ Comprehensive examples are available in the `example/` directory:
 - **[Recasting Examples](example/recasting_demo/)** - Type conversion utilities
 - **[Cache & Preflight Examples](example/cache_preflight_demo/)** - 6 examples showing cache-first patterns with automatic key generation
 - **[Concurrency Patterns Examples](example/concurrency_patterns/)** - 9 examples demonstrating pipeline, fan-out/fan-in, rate limiting, semaphore, generator, and smart wrapper patterns
-- **[Feature Flags Examples](example/featureflag_demo/)** - Complete demo showing feature flag management with Redis backend, environment-specific configuration, and rollout policies (gradual, canary, targeted, all-at-once)
+- **[Worker Pool Examples](example/worker_demo/)** - Immediate tasks, delayed tasks, cron jobs, Resque mode (retry/dead letter), and Celery mode (named queues/priorities)
+- **[Broker Encoding/Decoding Examples](example/worker_broker/)** - Task serialization for Redis/RabbitMQ, Resque and Celery format compatibility
+- **[Worker Pool Examples](example/worker_demo/)** - Immediate tasks, delayed tasks, cron jobs, Resque mode (retry/dead letter), and Celery mode (named queues/priorities)
 
 ## Performance Characteristics
 
@@ -1055,15 +1310,14 @@ Comprehensive examples are available in the `example/` directory:
 - **Generator**: Lazy evaluation, memory efficient, context-based cancellation
 - **Smart Wrapper**: Combines patterns with minimal overhead, configurable policies
 
-### Feature Flags
-- **Cache hit**: Sub-microsecond flag check (typically < 1µs)
-- **Cache miss**: Redis lookup + cache store (typically < 5ms)
-- **Default cache TTL**: 30 seconds (configurable)
-- **Storage**: Redis with JSON serialization
-- **Memory overhead**: Minimal, cached flags only
-- **Environment overrides**: Zero overhead, resolved at check time
-- **Rollout policies**: Consistent hashing for gradual rollout, O(1) for canary/targeted checks
-- **User assignment**: Deterministic with consistent hashing, same user always gets same result
+### Worker Pool
+- **Task execution**: Concurrent processing with configurable worker count
+- **Delayed tasks**: Time-based scheduling with millisecond precision
+- **Cron jobs**: Recurring tasks with flexible scheduling (checked every 50ms)
+- **Memory overhead**: Minimal - only task queue and scheduling metadata
+- **Throughput**: Limited by worker count and task duration
+- **Latency**: Immediate tasks execute as soon as workers are available
+- **Smart Wrapper**: Combines patterns with minimal overhead, configurable policies
 
 ## Use Cases
 
@@ -1137,16 +1391,20 @@ Comprehensive examples are available in the `example/` directory:
 - Automatic retry with backoff
 - Circuit breaker for failing services
 
-**Feature Flags:**
-- A/B testing and experimentation
-- Gradual feature rollouts with percentage-based deployment
-- Canary deployments with user segment targeting
-- Targeted rollouts to specific users (VIPs, testers)
-- Emergency kill switches
-- Environment-specific features (dev → stage → prod)
-- Feature toggles for beta features
-- Progressive delivery strategies
-- Dark launches and traffic shadowing
+**Worker Pool:**
+- Background job processing
+- Scheduled task execution
+- Email/notification queues
+- Periodic maintenance tasks
+- Batch processing with controlled concurrency
+- Task scheduling systems
+- Delayed message processing
+- Recurring report generation
+- **Resque-style**: Task retry with exponential backoff, dead letter queue management
+- **Celery-style**: Named queue routing, task priorities, distributed task execution
+- Job queues with priority levels
+- Fault-tolerant task processing
+- Task result tracking and retrieval
 
 ### ❌ Not Ideal For
 
@@ -1170,10 +1428,11 @@ Comprehensive examples are available in the `example/` directory:
 - Data that changes constantly and requires real-time accuracy
 - Very low memory environments where cache overhead is prohibitive
 
-**Feature Flags:**
-- Very high-frequency flag checks without caching (use in-memory flags)
-- Complex permission/authorization systems (use dedicated authorization service)
-- When Redis infrastructure is not available
+**Worker Pool:**
+- Real-time processing requiring microsecond precision
+- Tasks requiring strict ordering guarantees
+- Very high-frequency tasks (>1000/second) - consider dedicated solutions
+- Tasks with complex interdependencies
 
 ## Testing
 
