@@ -67,21 +67,17 @@ A powerful Go library providing advanced concurrent processing utilities, includ
 - Circuit breaker for fault tolerance
 - Composable with other patterns
 
-### 👷 **Worker Pool with Task Scheduling (NEW)**
-- Managed worker pool for concurrent task execution
-- **Immediate Tasks**: Execute tasks as soon as workers are available
-- **Delayed Tasks**: Schedule tasks to run after a specified delay
-- **Cron Jobs**: Recurring task execution with flexible cron expressions
-- Worker lifecycle management (start, stop)
-- Thread-safe task submission
-- Configurable worker count
-- **Resque Mode**: Retry with exponential backoff, dead letter queue, result storage
-- **Celery Mode**: Named queues, task priorities, task routing, acknowledgment
-- **Broker Encoding/Decoding**: Serialize tasks to/from JSON for Redis, RabbitMQ, etc.
-- Task handler registry for broker-based task retrieval
-- Compatible with Resque and Celery broker formats
-- Task lifecycle hooks (onStart, onComplete, onFailed)
-- Task expiration and timeout support
+### 🚩 **Feature Flags (NEW)**
+- Easy-to-use feature flag management with Redis backend
+- Environment-aware flag evaluation (prod, stage, dev)
+- **Rollout policies**: Gradual, canary, targeted, and all-at-once deployments
+- **Percentage-based rollouts** with consistent hashing
+- **User segment targeting** for canary releases
+- **Targeted rollouts** for specific user IDs
+- Global and environment-specific overrides
+- Local caching for fast reads
+- Safe defaults (non-existent flags default to disabled)
+- Simple API for common operations
 
 ## Installation
 

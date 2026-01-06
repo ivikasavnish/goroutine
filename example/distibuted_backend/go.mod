@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/ivikasavnish/goroutine v0.0.0
-	github.com/redis/go-redis/v9 v9.17.0
+	github.com/redis/go-redis/v9 v9.17.2
 )
 
 require (
