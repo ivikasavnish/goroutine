@@ -56,7 +56,7 @@ Shows only basic Iterator/Stream code (139 lines), WITHOUT SuperSlice type or Ne
 ```bash
 git show HEAD:superslice.go
 ```
-Shows complete implementation (577 lines) WITH SuperSlice type and NewSuperSlice function.
+Shows complete implementation (576 lines) WITH SuperSlice type and NewSuperSlice function.
 
 ## Verification
 

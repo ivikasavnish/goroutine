@@ -58,7 +58,7 @@ go run main.go
 
 3. Tag the release:
 ```bash
-git tag v1.0.8
+git tag -a v1.0.8 -m "Release v1.0.8: Add SuperSlice with NewSuperSlice function"
 git push origin v1.0.8
 ```
 
