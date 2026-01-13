@@ -56,17 +56,17 @@ go mod edit -replace github.com/ivikasavnish/goroutine=<path-to-local-repo>
 go run main.go
 ```
 
-3. Tag the release:
+### 3. Tag the release:
 ```bash
 git tag -a v1.0.8 -m "Release v1.0.8: Add SuperSlice with NewSuperSlice function"
 git push origin v1.0.8
 ```
 
-4. Create a GitHub release:
-   - Go to https://github.com/ivikasavnish/goroutine/releases/new
-   - Tag version: `v1.0.8`
-   - Release title: `v1.0.8 - SuperSlice and Feature Flag System`
-   - Copy the content from `RELEASE_NOTES_v1.0.8.md`
+### 4. Create a GitHub release:
+- Go to https://github.com/ivikasavnish/goroutine/releases/new
+- Tag version: `v1.0.8`
+- Release title: `v1.0.8 - SuperSlice and Feature Flag System`
+- Copy the content from `RELEASE_NOTES_v1.0.8.md`
 
 ## Files Changed
 - `superslice.go` - Contains the complete SuperSlice implementation
