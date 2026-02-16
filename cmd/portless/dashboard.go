@@ -192,10 +192,20 @@ const dashboardHTML = `<!DOCTYPE html>
     </div>
 
     <script>
-        // Auto-refresh every 5 seconds
-        setTimeout(() => {
-            window.location.reload();
-        }, 5000);
+        // Auto-refresh data every 5 seconds without full page reload
+        async function refreshDashboard() {
+            try {
+                const response = await fetch('/__dashboard/api');
+                if (response.ok) {
+                    window.location.reload();
+                }
+            } catch (error) {
+                console.error('Failed to refresh dashboard:', error);
+            }
+        }
+
+        // Refresh every 5 seconds
+        setInterval(refreshDashboard, 5000);
     </script>
 </body>
 </html>`
@@ -264,11 +274,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 		
 		if data.NgrokPublicURL != "" {
-			// Create public URL by inserting service name as subdomain
-			// Extract the domain from ngrok URL
-			publicDomain := strings.TrimPrefix(data.NgrokPublicURL, "https://")
-			publicDomain = strings.TrimPrefix(publicDomain, "http://")
-			service.PublicURL = fmt.Sprintf("https://%s.%s", name, publicDomain)
+			service.PublicURL = buildPublicURL(data.NgrokPublicURL, name)
 		}
 		
 		data.Services = append(data.Services, service)
@@ -317,9 +323,7 @@ func handleDashboardAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		
 		if data.NgrokPublicURL != "" {
-			publicDomain := strings.TrimPrefix(data.NgrokPublicURL, "https://")
-			publicDomain = strings.TrimPrefix(publicDomain, "http://")
-			service.PublicURL = fmt.Sprintf("https://%s.%s", name, publicDomain)
+			service.PublicURL = buildPublicURL(data.NgrokPublicURL, name)
 		}
 		
 		data.Services = append(data.Services, service)
@@ -345,4 +349,15 @@ func openBrowser(url string) error {
 	}
 
 	return cmd.Start()
+}
+
+// buildPublicURL creates a public URL for a service given the ngrok base URL
+func buildPublicURL(ngrokURL, serviceName string) string {
+	if ngrokURL == "" {
+		return ""
+	}
+	// Extract the domain from ngrok URL (remove protocol)
+	publicDomain := strings.TrimPrefix(ngrokURL, "https://")
+	publicDomain = strings.TrimPrefix(publicDomain, "http://")
+	return fmt.Sprintf("https://%s.%s", serviceName, publicDomain)
 }

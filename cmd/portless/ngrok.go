@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -148,11 +149,7 @@ func startNgrok(region string, subdomain string) {
 	if err := loadRegistry(); err == nil {
 		registry.RLock()
 		for name := range registry.Services {
-			// Replace localhost with ngrok domain
-			publicServiceURL := strings.Replace(publicURL, "https://", fmt.Sprintf("https://%s.", name), 1)
-			if !strings.HasPrefix(publicURL, "https://") {
-				publicServiceURL = strings.Replace(publicURL, "http://", fmt.Sprintf("http://%s.", name), 1)
-			}
+			publicServiceURL := buildPublicServiceURL(publicURL, name)
 			fmt.Printf("  - %s: %s\n", name, publicServiceURL)
 		}
 		registry.RUnlock()
@@ -217,7 +214,7 @@ func isNgrokRunning() bool {
 	}
 
 	// Send signal 0 to check if process is alive (Unix-like systems)
-	err = process.Signal(os.Signal(nil))
+	err = process.Signal(syscall.Signal(0))
 	return err == nil
 }
 
@@ -268,13 +265,23 @@ func ngrokStatus() {
 		if len(registry.Services) > 0 {
 			fmt.Println("\nPublic service URLs:")
 			for name := range registry.Services {
-				// Extract domain from public URL
-				publicServiceURL := strings.Replace(config.PublicURL, "://", fmt.Sprintf("://%s.", name), 1)
+				publicServiceURL := buildPublicServiceURL(config.PublicURL, name)
 				fmt.Printf("  - %s: %s\n", name, publicServiceURL)
 			}
 		}
 		registry.RUnlock()
 	}
+}
+
+// buildPublicServiceURL creates a public URL for a service given the ngrok base URL
+func buildPublicServiceURL(ngrokURL, serviceName string) string {
+	if ngrokURL == "" {
+		return ""
+	}
+	// Extract the domain from ngrok URL (remove protocol)
+	publicDomain := strings.TrimPrefix(ngrokURL, "https://")
+	publicDomain = strings.TrimPrefix(publicDomain, "http://")
+	return fmt.Sprintf("https://%s.%s", serviceName, publicDomain)
 }
 
 // getNgrokPublicURL fetches the public URL from ngrok's local API
