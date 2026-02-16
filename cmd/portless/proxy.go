@@ -124,20 +124,26 @@ func startProxy() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	// Create reverse proxy handler
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handleProxyRequest(w, r)
-	})
+	// Create HTTP handler with dashboard support
+	mux := http.NewServeMux()
+	
+	// Dashboard routes
+	mux.HandleFunc("/__dashboard", handleDashboard)
+	mux.HandleFunc("/__dashboard/api", handleDashboardAPI)
+	
+	// Default handler for service routing
+	mux.HandleFunc("/", handleProxyRequest)
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", proxyPort),
-		Handler: handler,
+		Handler: mux,
 	}
 
 	// Start server in goroutine
 	go func() {
 		fmt.Printf("Portless proxy server started on :%d\n", proxyPort)
 		fmt.Printf("Access your apps at http://<name>.localhost:%d\n", proxyPort)
+		fmt.Printf("Dashboard available at http://localhost:%d/__dashboard\n", proxyPort)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
 		}

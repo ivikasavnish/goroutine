@@ -22,6 +22,14 @@ func main() {
 			os.Exit(1)
 		}
 		handleProxy(os.Args[2])
+	case "ngrok":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: portless ngrok [start|stop|status]")
+			os.Exit(1)
+		}
+		handleNgrok(os.Args[2:])
+	case "dashboard":
+		startDashboard()
 	case "run":
 		if len(os.Args) < 4 {
 			fmt.Println("Usage: portless run <name> <command> [args...]")
@@ -48,18 +56,28 @@ func printUsage() {
 
 Usage:
   portless proxy [start|stop|status]     Manage the portless proxy server
+  portless ngrok [start|stop|status]     Expose proxy via ngrok tunnel
+  portless dashboard                     Open web dashboard
   portless run <name> <command> [args]   Run a command with a named .localhost URL
   portless <name> <command> [args]       Short form of 'run' command
   portless version                       Show version information
   portless help                          Show this help message
 
 Examples:
-  # First, start the proxy (run this in one terminal)
+  # Start the proxy
   portless proxy start
 
-  # Then run your apps (in separate terminals)
+  # Run your apps
   portless myapp npm start               # Access at http://myapp.localhost:1355
-  portless run api go run main.go        # Access at http://api.localhost:1355
+  portless api go run main.go            # Access at http://api.localhost:1355
+
+  # Expose to internet (optional)
+  portless ngrok start                   # All services accessible via ngrok URL
+  portless ngrok start --region eu       # Start with EU region
+  portless ngrok status                  # Check public URL
+
+  # View dashboard (optional)
+  portless dashboard                     # Opens web UI at http://localhost:1355
 
 Note: The proxy server must be running before using named URLs.`)
 }
@@ -81,4 +99,35 @@ func handleProxy(action string) {
 
 func handleRun(name string, command []string) {
 	runWithProxy(name, command)
+}
+
+func handleNgrok(args []string) {
+	action := args[0]
+	
+	switch action {
+	case "start":
+		region := ""
+		subdomain := ""
+		
+		// Parse flags
+		for i := 1; i < len(args); i++ {
+			if args[i] == "--region" && i+1 < len(args) {
+				region = args[i+1]
+				i++
+			} else if args[i] == "--subdomain" && i+1 < len(args) {
+				subdomain = args[i+1]
+				i++
+			}
+		}
+		
+		startNgrok(region, subdomain)
+	case "stop":
+		stopNgrok()
+	case "status":
+		ngrokStatus()
+	default:
+		fmt.Printf("Unknown ngrok action: %s\n", action)
+		fmt.Println("Usage: portless ngrok [start|stop|status]")
+		os.Exit(1)
+	}
 }

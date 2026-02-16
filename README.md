@@ -9,7 +9,7 @@ A powerful Go library providing advanced concurrent processing utilities, includ
 ## CLI Tools
 
 ### 🌐 **Portless - Named Localhost URLs (NEW)**
-Replace port numbers with stable, named `.localhost` URLs for development servers.
+Replace port numbers with stable, named `.localhost` URLs for development servers. Features ngrok integration and beautiful web dashboard!
 
 ```bash
 # Quick install
@@ -21,7 +21,19 @@ portless proxy start
 # Run your services
 portless myapp npm start    # Access at http://myapp.localhost:1355
 portless api go run main.go # Access at http://api.localhost:1355
+
+# Expose to internet (optional)
+portless ngrok start        # All services via single ngrok tunnel!
+
+# View dashboard (optional)
+portless dashboard          # Beautiful Tailwind CSS dashboard
 ```
+
+**Key Features:**
+- 🌐 Single ngrok tunnel exposes ALL services to the internet
+- 📊 Web dashboard with Tailwind CSS for monitoring services
+- 🎯 Named URLs for all services (local and public)
+- 🔄 Automatic port management
 
 **[📖 Full Portless Documentation](PORTLESS.md)**
 

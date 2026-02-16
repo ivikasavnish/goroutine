@@ -8,6 +8,8 @@ Portless is a command-line tool that replaces traditional port numbers with stab
 - 🔄 **Automatic Port Management**: No more port conflicts - each service gets a random free port
 - 🚀 **Simple CLI**: Easy to use command-line interface
 - 🔒 **Process Management**: Automatic service registration and cleanup
+- 🌐 **ngrok Integration**: Expose all services to the internet via a single ngrok tunnel
+- 📊 **Web Dashboard**: Beautiful Tailwind CSS dashboard to monitor services
 - 📦 **Easy Installation**: Install via curl or build from source
 - 💻 **Cross-Platform**: Works on Linux and macOS
 
@@ -74,6 +76,36 @@ Open your browser and navigate to:
 - `http://api.localhost:1355`
 - `http://backend.localhost:1355`
 
+### 4. View Dashboard (Optional)
+
+Open the web dashboard to see all registered services:
+
+```bash
+portless dashboard
+```
+
+This opens `http://localhost:1355/__dashboard` in your browser, showing:
+- All registered services with their ports and URLs
+- Proxy and ngrok status
+- Quick command reference
+
+### 5. Expose to Internet (Optional)
+
+Share your local services with the world using ngrok:
+
+```bash
+# Start ngrok tunnel
+portless ngrok start
+
+# Check public URL
+portless ngrok status
+
+# Stop ngrok
+portless ngrok stop
+```
+
+All your services become accessible via the ngrok public URL with their service names as subdomains!
+
 ## Usage
 
 ### Proxy Management
@@ -135,6 +167,90 @@ http.ListenAndServe(":"+port, handler)
    - The proxy looks up the registered port for "myapp"
    - Forwards the request to that port
    - Returns the response
+4. **ngrok Tunneling** (optional): A single ngrok tunnel exposes ALL services:
+   - ngrok connects to your proxy port (1355)
+   - All services are accessible via `https://<service>.ngrok-url.com`
+   - One tunnel, multiple services!
+
+## ngrok Integration
+
+### Prerequisites
+
+Install ngrok from [ngrok.com/download](https://ngrok.com/download)
+
+### Usage
+
+```bash
+# Start ngrok tunnel (requires proxy to be running)
+portless ngrok start
+
+# Start with specific region
+portless ngrok start --region eu
+
+# Start with custom subdomain (requires ngrok account)
+portless ngrok start --subdomain mycompany
+
+# Check status and get public URL
+portless ngrok status
+
+# Stop tunnel
+portless ngrok stop
+```
+
+### How ngrok Works with Portless
+
+When you start an ngrok tunnel, portless:
+
+1. Starts ngrok pointing to the proxy port (1355)
+2. Retrieves the public URL from ngrok's API
+3. Updates the dashboard to show public URLs for all services
+
+**Example:**
+- Local: `http://api.localhost:1355`
+- Public: `https://api.abc123.ngrok.io`
+
+All your services automatically get public URLs with their names as subdomains!
+
+### Benefits
+
+- **Single Tunnel**: One ngrok tunnel exposes all services
+- **Named URLs**: Services keep their names in public URLs
+- **Free Tier**: Works with ngrok's free tier
+- **Dynamic**: New services automatically get public URLs
+
+## Web Dashboard
+
+### Accessing the Dashboard
+
+```bash
+# Open dashboard (auto-opens browser)
+portless dashboard
+
+# Or manually visit
+open http://localhost:1355/__dashboard
+```
+
+### Dashboard Features
+
+The Tailwind CSS-styled dashboard shows:
+
+- **Status Cards**: Proxy and ngrok tunnel status
+- **Service List**: All registered services with:
+  - Service name and assigned port
+  - Local URLs (`http://<name>.localhost:1355`)
+  - Public URLs (if ngrok is active)
+- **Quick Commands**: Common portless commands
+- **Auto-Refresh**: Updates every 5 seconds
+
+### API Endpoint
+
+Access dashboard data programmatically:
+
+```bash
+curl http://localhost:1355/__dashboard/api
+```
+
+Returns JSON with all services, ports, and URLs.
 
 ## Configuration
 
