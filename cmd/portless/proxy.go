@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -21,11 +20,27 @@ import (
 )
 
 const (
-	proxyPort     = 1355
-	configDir     = ".portless"
-	registryFile  = "registry.json"
-	pidFile       = "proxy.pid"
+	defaultProxyPort = 1355
+	configDir        = ".portless"
+	registryFile     = "registry.json"
+	pidFile          = "proxy.pid"
 )
+
+var proxyPort int
+
+func init() {
+	// Allow proxy port to be configured via environment variable
+	if portStr := os.Getenv("PORTLESS_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil && port > 0 && port < 65536 {
+			proxyPort = port
+		} else {
+			log.Printf("Warning: Invalid PORTLESS_PORT value '%s', using default %d", portStr, defaultProxyPort)
+			proxyPort = defaultProxyPort
+		}
+	} else {
+		proxyPort = defaultProxyPort
+	}
+}
 
 type Registry struct {
 	sync.RWMutex
@@ -122,7 +137,7 @@ func startProxy() {
 	// Start server in goroutine
 	go func() {
 		fmt.Printf("Portless proxy server started on :%d\n", proxyPort)
-		fmt.Println("Access your apps at http://<name>.localhost:1355")
+		fmt.Printf("Access your apps at http://<name>.localhost:%d\n", proxyPort)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
 		}
@@ -328,46 +343,4 @@ func findFreePort() (int, error) {
 	defer l.Close()
 
 	return l.Addr().(*net.TCPAddr).Port, nil
-}
-
-// Check if a port is in use
-func isPortInUse(port int) bool {
-	addr := fmt.Sprintf("localhost:%d", port)
-	conn, err := net.DialTimeout("tcp", addr, 1*time.Second)
-	if err != nil {
-		return false
-	}
-	conn.Close()
-	return true
-}
-
-// Wait for a port to become available (service started)
-func waitForPort(port int, timeout time.Duration) error {
-	start := time.Now()
-	for {
-		if isPortInUse(port) {
-			return nil
-		}
-		if time.Since(start) > timeout {
-			return fmt.Errorf("timeout waiting for port %d", port)
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-}
-
-// Check if proxy is accessible
-func checkProxyHealth() error {
-	client := &http.Client{
-		Timeout: 2 * time.Second,
-	}
-	
-	resp, err := client.Get(fmt.Sprintf("http://localhost:%d", proxyPort))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	
-	// Read and discard body
-	io.Copy(io.Discard, resp.Body)
-	return nil
 }

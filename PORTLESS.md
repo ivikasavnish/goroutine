@@ -143,6 +143,15 @@ Portless stores its configuration in `~/.portless/`:
 - `registry.json`: Service name to port mappings
 - `proxy.pid`: Proxy server process ID
 
+### Environment Variables
+
+- `PORTLESS_PORT`: Set custom proxy port (default: 1355)
+  ```bash
+  PORTLESS_PORT=8080 portless proxy start
+  ```
+- `PORT`: Automatically set for your service by portless
+- `SERVICE_NAME`: Automatically set to your service name by portless
+
 ## Comparison with Original Portless
 
 | Feature | This Implementation | vercel-labs/portless |
@@ -223,9 +232,13 @@ portless proxy status  # Check registered services
 
 ### Port Already in Use
 
-Portless automatically finds free ports, but if port 1355 is in use:
-- Stop the conflicting service
-- Or modify the proxy port in the source code
+If port 1355 (default proxy port) is in use, you can use a custom port:
+```bash
+PORTLESS_PORT=8080 portless proxy start
+# Then access services at http://<name>.localhost:8080
+```
+
+Or stop the conflicting service to use the default port.
 
 ### Service Won't Start
 

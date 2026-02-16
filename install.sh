@@ -55,6 +55,13 @@ if [ "$VERSION" = "latest" ]; then
         exit 1
     fi
     
+    # Check if git is installed
+    if ! command -v git &> /dev/null; then
+        echo "Error: Git is not installed"
+        echo "Please install Git and try again"
+        exit 1
+    fi
+    
     # Clone the repository
     git clone --depth 1 https://github.com/${REPO}.git
     cd goroutine
