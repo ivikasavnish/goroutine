@@ -40,10 +40,11 @@ func runWithProxy(name string, command []string) {
 		}
 	}()
 
-	// Set up environment variable for PORT
+	// Set up environment variables
 	env := append(os.Environ(), 
 		fmt.Sprintf("PORT=%d", port),
 		fmt.Sprintf("SERVICE_NAME=%s", name),
+		fmt.Sprintf("PORTLESS_PORT=%d", proxyPort),
 	)
 
 	// Build the command

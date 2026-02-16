@@ -39,7 +39,11 @@ func main() {
 		if serviceName == "" {
 			serviceName = "myapp"
 		}
-		fmt.Printf("Access via: http://%s.localhost:1355\n", serviceName)
+		proxyPort := os.Getenv("PORTLESS_PORT")
+		if proxyPort == "" {
+			proxyPort = "1355"
+		}
+		fmt.Printf("Access via: http://%s.localhost:%s\n", serviceName, proxyPort)
 	} else {
 		fmt.Printf("Access via: http://localhost:%s\n", port)
 	}

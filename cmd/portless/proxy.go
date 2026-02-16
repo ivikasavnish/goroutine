@@ -163,16 +163,13 @@ func startProxy() {
 func handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 	// Extract service name from host
 	host := r.Host
-	parts := strings.Split(host, ".")
+	// Remove port if present
+	hostWithoutPort := strings.Split(host, ":")[0]
+	parts := strings.Split(hostWithoutPort, ".")
 	
-	if len(parts) < 2 || parts[len(parts)-1] != fmt.Sprintf("localhost:%d", proxyPort) {
-		// Try without port
-		hostWithoutPort := strings.Split(host, ":")[0]
-		parts = strings.Split(hostWithoutPort, ".")
-		if len(parts) < 2 || parts[len(parts)-1] != "localhost" {
-			http.Error(w, "Invalid host format. Use <name>.localhost:1355", http.StatusBadRequest)
-			return
-		}
+	if len(parts) < 2 || parts[len(parts)-1] != "localhost" {
+		http.Error(w, fmt.Sprintf("Invalid host format. Use <name>.localhost:%d", proxyPort), http.StatusBadRequest)
+		return
 	}
 
 	serviceName := parts[0]
@@ -243,12 +240,27 @@ func stopProxy() {
 	// Send SIGTERM
 	if err := process.Signal(syscall.SIGTERM); err != nil {
 		fmt.Printf("Failed to stop proxy: %v\n", err)
+		os.Remove(pidPath)
 		return
 	}
 
-	// Wait for process to exit
-	time.Sleep(1 * time.Second)
-
+	// Wait for process to exit with timeout
+	maxWait := 5 * time.Second
+	start := time.Now()
+	for time.Since(start) < maxWait {
+		if err := process.Signal(syscall.Signal(0)); err != nil {
+			// Process no longer exists
+			os.Remove(pidPath)
+			fmt.Println("Proxy stopped")
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	
+	// If still running after timeout, force kill
+	fmt.Println("Proxy did not stop gracefully, forcing...")
+	process.Kill()
+	os.Remove(pidPath)
 	fmt.Println("Proxy stopped")
 }
 
