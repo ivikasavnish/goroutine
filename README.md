@@ -4,9 +4,28 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/ivikasavnish/goroutine)](https://goreportcard.com/report/github.com/ivikasavnish/goroutine)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A powerful Go library providing advanced concurrent processing utilities, including async task resolution, safe channel operations, parallel slice processing, and flexible goroutine management.
+A powerful Go library providing advanced concurrent processing utilities, including async task resolution, safe channel operations, parallel slice processing, and flexible goroutine management. Also includes **Portless**, a CLI tool for named localhost URLs.
 
-## Features
+## CLI Tools
+
+### 🌐 **Portless - Named Localhost URLs (NEW)**
+Replace port numbers with stable, named `.localhost` URLs for development servers.
+
+```bash
+# Quick install
+curl -fsSL https://raw.githubusercontent.com/ivikasavnish/goroutine/main/install.sh | sh
+
+# Start the proxy
+portless proxy start
+
+# Run your services
+portless myapp npm start    # Access at http://myapp.localhost:1355
+portless api go run main.go # Access at http://api.localhost:1355
+```
+
+**[📖 Full Portless Documentation](PORTLESS.md)**
+
+## Library Features
 
 ### 🗺️ **SwissMap (High-Performance Concurrent Map) (NEW)**
 - Thread-safe generic map with sharded architecture

@@ -1,0 +1,286 @@
+# Portless - Named Localhost URLs for Go
+
+Portless is a command-line tool that replaces traditional port numbers with stable, named `.localhost` URLs for your development servers. Built in Go, inspired by [vercel-labs/portless](https://github.com/vercel-labs/portless).
+
+## Features
+
+- 🎯 **Named URLs**: Access services via `http://myapp.localhost:1355` instead of remembering port numbers
+- 🔄 **Automatic Port Management**: No more port conflicts - each service gets a random free port
+- 🚀 **Simple CLI**: Easy to use command-line interface
+- 🔒 **Process Management**: Automatic service registration and cleanup
+- 📦 **Easy Installation**: Install via curl or build from source
+- 💻 **Cross-Platform**: Works on Linux and macOS
+
+## Installation
+
+### Quick Install (Linux/macOS)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ivikasavnish/goroutine/main/install.sh | sh
+```
+
+### Manual Installation
+
+#### Prerequisites
+- Go 1.22 or later
+
+#### From Source
+
+```bash
+git clone https://github.com/ivikasavnish/goroutine.git
+cd goroutine
+make install
+```
+
+Or build without installing:
+
+```bash
+make build
+# Binary will be in bin/portless
+```
+
+## Quick Start
+
+### 1. Start the Proxy Server
+
+In one terminal, start the portless proxy:
+
+```bash
+portless proxy start
+```
+
+This starts a reverse proxy on port 1355 that routes requests to your services.
+
+### 2. Run Your Services
+
+In separate terminals, run your services with portless:
+
+```bash
+# Example: Node.js app
+portless myapp npm start
+
+# Example: Go server
+portless api go run main.go
+
+# Example: Python Flask app
+portless backend python app.py
+```
+
+### 3. Access Your Services
+
+Open your browser and navigate to:
+
+- `http://myapp.localhost:1355`
+- `http://api.localhost:1355`
+- `http://backend.localhost:1355`
+
+## Usage
+
+### Proxy Management
+
+```bash
+# Start the proxy server
+portless proxy start
+
+# Check proxy status
+portless proxy status
+
+# Stop the proxy server
+portless proxy stop
+```
+
+### Running Services
+
+```bash
+# Long form
+portless run <service-name> <command> [args...]
+
+# Short form
+portless <service-name> <command> [args...]
+
+# Examples
+portless webapp npm run dev
+portless api go run server.go
+portless db docker-compose up
+```
+
+### Environment Variables
+
+Portless automatically sets the `PORT` environment variable for your service:
+
+```javascript
+// Your app can read the port
+const port = process.env.PORT || 3000;
+app.listen(port);
+```
+
+```go
+// Go example
+port := os.Getenv("PORT")
+if port == "" {
+    port = "3000"
+}
+http.ListenAndServe(":"+port, handler)
+```
+
+## How It Works
+
+1. **Proxy Server**: Portless runs a reverse proxy on port 1355
+2. **Service Registration**: When you run a service, portless:
+   - Finds a free random port
+   - Registers the service name → port mapping
+   - Sets the `PORT` environment variable
+   - Starts your command
+3. **Request Routing**: When you access `http://myapp.localhost:1355`:
+   - The proxy looks up the registered port for "myapp"
+   - Forwards the request to that port
+   - Returns the response
+
+## Configuration
+
+Portless stores its configuration in `~/.portless/`:
+
+- `registry.json`: Service name to port mappings
+- `proxy.pid`: Proxy server process ID
+
+## Comparison with Original Portless
+
+| Feature | This Implementation | vercel-labs/portless |
+|---------|-------------------|---------------------|
+| Language | Go | Node.js/TypeScript |
+| Installation | curl \| sh, binary | npm install -g |
+| Proxy Port | 1355 | 1355 |
+| Named URLs | ✓ | ✓ |
+| Auto Port Assignment | ✓ | ✓ |
+| Process Management | ✓ | ✓ |
+
+## Examples
+
+### Node.js (Express)
+
+```bash
+# In your package.json
+{
+  "scripts": {
+    "dev": "portless myapp nodemon server.js"
+  }
+}
+
+# Run it
+npm run dev
+# Access at http://myapp.localhost:1355
+```
+
+### Go (HTTP Server)
+
+```bash
+# Run your Go server
+portless api go run main.go
+# Access at http://api.localhost:1355
+```
+
+### Python (Flask)
+
+```bash
+# Flask automatically reads PORT
+portless webapp flask run
+# Access at http://webapp.localhost:1355
+```
+
+### Multiple Services (Monorepo)
+
+```bash
+# Terminal 1
+portless frontend npm run dev
+
+# Terminal 2
+portless api go run cmd/api/main.go
+
+# Terminal 3
+portless auth python auth_service.py
+
+# Access:
+# http://frontend.localhost:1355
+# http://api.localhost:1355
+# http://auth.localhost:1355
+```
+
+## Troubleshooting
+
+### "Proxy is not running"
+
+Make sure to start the proxy first:
+```bash
+portless proxy start
+```
+
+### "Service not found"
+
+Ensure your service is running via portless:
+```bash
+portless proxy status  # Check registered services
+```
+
+### Port Already in Use
+
+Portless automatically finds free ports, but if port 1355 is in use:
+- Stop the conflicting service
+- Or modify the proxy port in the source code
+
+### Service Won't Start
+
+Check that:
+- Your command is correct
+- Required dependencies are installed
+- The service can bind to the assigned PORT
+
+## Uninstallation
+
+```bash
+# Stop the proxy
+portless proxy stop
+
+# Uninstall the binary
+make uninstall
+# or
+sudo rm /usr/local/bin/portless
+
+# Remove configuration (optional)
+rm -rf ~/.portless
+```
+
+## Development
+
+### Building
+
+```bash
+make build
+```
+
+### Build for Multiple Platforms
+
+```bash
+make build-all
+```
+
+This creates binaries for:
+- Linux (amd64, arm64)
+- macOS (amd64, arm64)
+
+### Testing
+
+```bash
+make test
+```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+MIT License - see the LICENSE file for details.
+
+## Credits
+
+Inspired by [vercel-labs/portless](https://github.com/vercel-labs/portless).

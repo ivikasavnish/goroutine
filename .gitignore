@@ -9,3 +9,6 @@ example/*/*.out
 *.dll
 *.so
 *.dylib
+
+# Build directory
+bin/
