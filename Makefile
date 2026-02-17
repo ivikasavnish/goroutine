@@ -68,7 +68,12 @@ release: build-all
 
 release-checksums: release
 	@echo "Generating SHA256 checksums..."
-	@cd $(DIST_DIR) && sha256sum *.tar.gz > checksums.txt
+	@cd $(DIST_DIR) && \
+		if command -v sha256sum >/dev/null 2>&1; then \
+			sha256sum *.tar.gz > checksums.txt; \
+		else \
+			shasum -a 256 *.tar.gz > checksums.txt; \
+		fi
 	@echo "Checksums generated:"
 	@cat $(DIST_DIR)/checksums.txt
 

@@ -176,8 +176,8 @@ If you need to create a release manually, you can use the Makefile targets:
 
 ### Using Makefile (Recommended for local testing):
 ```bash
-# Set the version
-export VERSION=1.0.1
+# Set the version (with v prefix)
+export VERSION=v1.0.1
 
 # Create release archives for all platforms
 make release
