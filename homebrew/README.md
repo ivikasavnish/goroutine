@@ -114,6 +114,23 @@ act -j build
 ```
 
 ### Manual build for all platforms
+
+Using Makefile (recommended):
+```bash
+# Build binaries and create release archives
+make release
+
+# Generate checksums
+make release-checksums
+
+# View the results
+ls -lh dist/
+
+# Clean up
+make release-clean
+```
+
+Using manual commands:
 ```bash
 make build-all
 ```

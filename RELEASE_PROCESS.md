@@ -23,10 +23,16 @@ git pull origin main
 
 ```bash
 # Run all tests
-go test ./...
+make test
 
-# Test building for all platforms
-make build-all
+# Test building for all platforms and creating release archives
+make release
+
+# Test creating checksums
+make release-checksums
+
+# Clean up test artifacts
+make release-clean
 
 # Verify the binaries work
 ./bin/portless-linux-amd64 version
@@ -166,9 +172,31 @@ If checksums don't match:
 
 ## Manual Release (Alternative)
 
-If you need to create a release manually:
+If you need to create a release manually, you can use the Makefile targets:
 
-### Build binaries:
+### Using Makefile (Recommended for local testing):
+```bash
+# Set the version
+export VERSION=1.0.1
+
+# Create release archives for all platforms
+make release
+
+# Generate checksums
+make release-checksums
+
+# The artifacts will be in the dist/ directory:
+# - portless-darwin-amd64.tar.gz
+# - portless-darwin-arm64.tar.gz
+# - portless-linux-amd64.tar.gz
+# - portless-linux-arm64.tar.gz
+# - checksums.txt
+
+# Clean up when done
+make release-clean
+```
+
+### Manual build (if Make is not available):
 ```bash
 VERSION=v1.0.1
 mkdir -p dist
