@@ -43,10 +43,39 @@ echo "Installing portless for $PLATFORM..."
 TMP_DIR=$(mktemp -d)
 cd "$TMP_DIR"
 
-# Determine download URL
+# Determine download URL and strategy
 if [ "$VERSION" = "latest" ]; then
-    # For now, we'll build from source since releases aren't set up yet
-    echo "Downloading source code..."
+    # Try to get the latest release from GitHub API
+    echo "Fetching latest release..."
+    
+    # Try to fetch latest version using jq if available, fallback to grep/sed
+    if command -v jq &> /dev/null; then
+        if command -v curl &> /dev/null; then
+            LATEST_VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | jq -r '.tag_name')
+        elif command -v wget &> /dev/null; then
+            LATEST_VERSION=$(wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" | jq -r '.tag_name')
+        fi
+    else
+        # Fallback to grep/sed (less robust but widely available)
+        if command -v curl &> /dev/null; then
+            LATEST_VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        elif command -v wget &> /dev/null; then
+            LATEST_VERSION=$(wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        fi
+    fi
+    
+    if [ -n "$LATEST_VERSION" ] && [ "$LATEST_VERSION" != "null" ]; then
+        VERSION="$LATEST_VERSION"
+        echo "Found latest version: $VERSION"
+    else
+        echo "Could not fetch latest release. Will build from source."
+        VERSION="source"
+    fi
+fi
+
+# Download or build
+if [ "$VERSION" = "source" ]; then
+    echo "Building from source..."
     
     # Check if go is installed
     if ! command -v go &> /dev/null; then
@@ -71,18 +100,33 @@ if [ "$VERSION" = "latest" ]; then
     go build -o "$BINARY_NAME" ./cmd/portless
     
 else
-    # Download from releases (future enhancement)
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY_NAME}-${PLATFORM}"
+    # Download from releases
+    ARCHIVE_NAME="${BINARY_NAME}-${PLATFORM}.tar.gz"
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE_NAME}"
     echo "Downloading from $DOWNLOAD_URL..."
     
     if command -v curl &> /dev/null; then
-        curl -fsSL "$DOWNLOAD_URL" -o "$BINARY_NAME"
+        curl -fsSL "$DOWNLOAD_URL" -o "$ARCHIVE_NAME"
     elif command -v wget &> /dev/null; then
-        wget -q "$DOWNLOAD_URL" -O "$BINARY_NAME"
+        wget -q "$DOWNLOAD_URL" -O "$ARCHIVE_NAME"
     else
         echo "Error: Neither curl nor wget is available"
         exit 1
     fi
+    
+    # Extract the archive
+    echo "Extracting..."
+    tar xzf "$ARCHIVE_NAME"
+    
+    # Find the binary (it will be named with platform)
+    BINARY_FILE="${BINARY_NAME}-${PLATFORM}"
+    if [ ! -f "$BINARY_FILE" ]; then
+        echo "Error: Binary $BINARY_FILE not found in archive"
+        exit 1
+    fi
+    
+    # Rename to standard name
+    mv "$BINARY_FILE" "$BINARY_NAME"
 fi
 
 # Make binary executable

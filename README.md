@@ -11,10 +11,24 @@ A powerful Go library providing advanced concurrent processing utilities, includ
 ### 🌐 **Portless - Named Localhost URLs (NEW)**
 Replace port numbers with stable, named `.localhost` URLs for development servers. Features ngrok integration and beautiful web dashboard!
 
+**Installation Options:**
+
 ```bash
-# Quick install
+# Option 1: Homebrew (macOS and Linux - AMD64/ARM64)
+brew install ivikasavnish/tap/portless
+
+# Option 2: Quick install script
 curl -fsSL https://raw.githubusercontent.com/ivikasavnish/goroutine/main/install.sh | sh
 
+# Option 3: Build from source
+git clone https://github.com/ivikasavnish/goroutine.git
+cd goroutine
+make install
+```
+
+**Usage:**
+
+```bash
 # Start the proxy
 portless proxy start
 
