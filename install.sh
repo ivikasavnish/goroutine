@@ -48,13 +48,23 @@ if [ "$VERSION" = "latest" ]; then
     # Try to get the latest release from GitHub API
     echo "Fetching latest release..."
     
-    if command -v curl &> /dev/null; then
-        LATEST_VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    elif command -v wget &> /dev/null; then
-        LATEST_VERSION=$(wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    # Try to fetch latest version using jq if available, fallback to grep/sed
+    if command -v jq &> /dev/null; then
+        if command -v curl &> /dev/null; then
+            LATEST_VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | jq -r '.tag_name')
+        elif command -v wget &> /dev/null; then
+            LATEST_VERSION=$(wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" | jq -r '.tag_name')
+        fi
+    else
+        # Fallback to grep/sed (less robust but widely available)
+        if command -v curl &> /dev/null; then
+            LATEST_VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        elif command -v wget &> /dev/null; then
+            LATEST_VERSION=$(wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        fi
     fi
     
-    if [ -n "$LATEST_VERSION" ]; then
+    if [ -n "$LATEST_VERSION" ] && [ "$LATEST_VERSION" != "null" ]; then
         VERSION="$LATEST_VERSION"
         echo "Found latest version: $VERSION"
     else

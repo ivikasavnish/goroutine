@@ -4,6 +4,10 @@ class Portless < Formula
   version "1.0.0"
   license "MIT"
 
+  # NOTE: This is a template formula with placeholder SHA256 values.
+  # Before using, update with actual checksums using: ./homebrew/update_formula.sh <version>
+  # DO NOT use this formula with placeholder values - it poses a security risk!
+
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/ivikasavnish/goroutine/releases/download/v1.0.0/portless-darwin-arm64.tar.gz"
